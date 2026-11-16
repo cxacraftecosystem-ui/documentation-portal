@@ -189,6 +189,7 @@ model QuestionnaireRecording {
   @@index([continuationOfId])
   // The recordings list and search, newest capture first (owner, 31 Oct 2026).
   @@index([capturedAt, id])
+  @@index([createdAt, id])
 }
 
 /// The clip-to-question link by foreign key (quick win 4). One take can cover F1-F6, so a table.
@@ -409,4 +410,21 @@ model AppClientVersion {
   @@id([userId, platform, versionCode])
   @@index([platform, versionCode])
   @@index([lastSeenAt])
+}
+
+model DeviceOutboxReport {
+  userId      String
+  installId   String
+  platform    String
+  appVersion  String?
+  pending     Int       @default(0)
+  failed      Int       @default(0)
+  oldestAt    DateTime?
+  reportedAt  DateTime  @default(now())
+  firstSeenAt DateTime  @default(now())
+
+  user User @relation("DeviceOutboxReportUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, installId])
+  @@index([pending, oldestAt])
 }

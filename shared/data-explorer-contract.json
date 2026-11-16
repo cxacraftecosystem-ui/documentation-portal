@@ -253,7 +253,7 @@
         "sort": "key:dir | absent (0.0.15). See sorting.routes.browse"
       },
       "response": "{type, items: [{id, name, creator: string | null, createdAt: string | null}], total, page, pageSize, pages, truncated: bool}",
-      "notes": "Browse by type (W5). Newest first. Removed recordings never appear (A1). FR includes every review status (owner decision 1, W6 dropped). truncated is true when total > page * pageSize: show 'Showing N of TOTAL' and offer the next page."
+      "notes": "Browse by type (W5). Newest first. Removed recordings never appear (A1). FR includes every review status (owner decision 1, W6 dropped). truncated is true when total > page * pageSize: show 'Showing N of TOTAL' and offer the next page. A tool row's name is its toolkit name and every artisan of the tool, the head first and each name once (shared/tool-scope-vectors.json artisanNames), and q matches any of those artisans, linked or head."
     },
     {
       "id": "browse-media",
@@ -466,7 +466,7 @@
       },
       "response": "{portal: 'fieldRepository' | 'designer', portalLabel, status: 'ok' | 'off' | 'notPermitted' | 'unavailable' | 'filteredOut', items: [PeerRow], total, page, pageSize, pages, notApplied: [param]}",
       "peerRow": "{portal: 'fieldRepository' | 'designer', portalLabel, local: false, type: unified type (artisans, crafts, workshops, designWorkshops, interviews, transcripts, products, tools, processes, media), id, title, subtitle: string | null, place: string | null, recordDate: string | null, craftCodes: [string], href: '/remote/<type>/<id>', openUrl: string | null}",
-      "notes": "Results from the other portal through the signed cross-portal API (POST /cross-portal/peer/explore on the peer), scoped to what this user may see there (matched by e-mail, shareable records only, the same rule as unified search). Draw a portal chip with portalLabel on every row. Open a row with href, the existing cross-portal record page (web /remote/<type>/<id>; Android the same remote record screen); openUrl is the peer's own page. status filteredOut: a craft has no shared code or an artisan has no link, so nothing in the peer can match. status off/notPermitted/unavailable: say so in one line; never a blank list.",
+      "notes": "Results from the other portal through the signed cross-portal API (POST /cross-portal/peer/explore on the peer), scoped to what this user may see there (matched by e-mail, shareable records only, the same rule as unified search). Draw a portal chip with portalLabel on every row. Open a row with href, the existing cross-portal record page (web /remote/<type>/<id>; Android the same remote record screen); openUrl is the peer's own page. status filteredOut: a craft has no shared code or an artisan has no link, so nothing in the peer can match. status off/notPermitted/unavailable: say so in one line; never a blank list. A tool's subtitle names every artisan of the tool, the head first and each name once.",
       "browseTypeToPeerType": {
         "artisan": "artisans",
         "product": "products",

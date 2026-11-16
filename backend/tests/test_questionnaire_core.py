@@ -268,6 +268,38 @@ def test_record_by_is_a_session_field_a_patch_can_change_and_never_null() -> Non
         S.SessionPatch(version=2, recordBy="ARTISAN")
 
 
+def test_a_phone_reports_what_its_outbox_holds_in_four_headers_and_is_written_once_a_minute() -> None:
+    from app.questionnaire import outbox_reports
+
+    report = outbox_reports.report_of({
+        "x-install-id": "0b9f6c1e-1d2b-4c5e-9f00-1234567890ab", "x-outbox-pending": "3", "x-outbox-failed": "1",
+        "x-outbox-oldest": "2026-11-15T08:00:00Z",
+    })
+    assert report is not None
+    assert (report["installId"], report["pending"], report["failed"]) == ("0b9f6c1e-1d2b-4c5e-9f00-1234567890ab", 3, 1)
+    assert report["oldestAt"].isoformat() == "2026-11-15T08:00:00+00:00"
+    empty = outbox_reports.report_of({"x-install-id": "0b9f6c1e-1d2b", "x-outbox-pending": "0", "x-outbox-failed": "0",
+                                      "x-outbox-oldest": "2026-11-15T08:00:00Z"})
+    assert empty is not None and empty["oldestAt"] is None, "nothing pending has no oldest"
+    assert outbox_reports.report_of({"x-install-id": "0b9f6c1e-1d2b", "x-outbox-pending": "2", "x-outbox-failed": "5"})["failed"] == 2
+    for bad in (
+        {}, {"x-install-id": "short", "x-outbox-pending": "1", "x-outbox-failed": "0"},
+        {"x-install-id": "0b9f6c1e-1d2b", "x-outbox-pending": "-1", "x-outbox-failed": "0"},
+        {"x-install-id": "0b9f6c1e-1d2b", "x-outbox-pending": "two", "x-outbox-failed": "0"},
+        {"x-install-id": "0b9f6c1e;drop", "x-outbox-pending": "1", "x-outbox-failed": "0"},
+        {"x-install-id": "0b9f6c1e-1d2b", "x-outbox-pending": "9999999", "x-outbox-failed": "0"},
+    ):
+        assert outbox_reports.report_of(bad) is None, bad
+    garbled = outbox_reports.report_of({"x-install-id": "0b9f6c1e-1d2b", "x-outbox-pending": "1", "x-outbox-failed": "0", "x-outbox-oldest": "soon"})
+    assert garbled is not None and garbled["oldestAt"] is None, "a bad date drops the date, not the report"
+    scope = {"headers": [(b"x-install-id", b"0b9f6c1e-1d2b"), (b"X-Outbox-Pending", b"4"), (b"x-outbox-failed", b"0")]}
+    assert outbox_reports.report_from_scope(scope)["pending"] == 4
+    assert outbox_reports.should_write("u-outbox", "inst-a", now=1000.0) is True
+    assert outbox_reports.should_write("u-outbox", "inst-a", now=1030.0) is False, "at most once a minute per install"
+    assert outbox_reports.should_write("u-outbox", "inst-b", now=1030.0) is True, "each install keeps its own minute"
+    assert outbox_reports.should_write("u-outbox", "inst-a", now=1061.0) is True
+
+
 def test_a_sha_lookup_takes_up_to_fifty_hex_digests_and_lowers_them() -> None:
     from pydantic import ValidationError
 

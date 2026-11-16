@@ -12,13 +12,17 @@ import { RecordingChips } from "@/components/questionnaire/RecordingChips";
 import { TranscriptStatus } from "@/components/questionnaire/TranscriptStatus";
 import { TranscriptPreview } from "@/components/transcript/TranscriptPreview";
 import { useQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
+import { useRecordingSort } from "@/components/questionnaire/useRecordingSort";
 import { useListPlace, useUrlFilters } from "@/components/questionnaire/useUrlFilters";
-import { questionnaireApi, type Recording } from "@/lib/questionnaire/api";
+import { SegmentedChoice } from "@/components/ui/SegmentedChoice";
+import { questionnaireApi, type Recording, type RecordingSort } from "@/lib/questionnaire/api";
 import { cleanFilters, type Filters } from "@/lib/questionnaire/filters";
 import { qs } from "@/lib/questionnaire/qs";
+import { isRecordingSort, recordingSortOptions } from "@/lib/questionnaire/recordingSort";
 
 export function RecordingsList() {
   const { filters, setFilters, ready } = useUrlFilters();
+  const { sort, ready: sortReady, choose } = useRecordingSort();
   const config = useQuestionnaireConfig();
   const [items, setItems] = useState<Recording[] | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -26,11 +30,11 @@ export function RecordingsList() {
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
 
-  const load = useCallback(async (current: Filters, after: string | null) => {
+  const load = useCallback(async (current: Filters, after: string | null, order: RecordingSort) => {
     const mine = (generation.current += 1);
     setError(null);
     try {
-      const page = await questionnaireApi.listRecordings(current, after);
+      const page = await questionnaireApi.listRecordings(current, after, null, undefined, order);
       if (mine !== generation.current) return;
       setItems((prev) => (after && prev ? [...prev, ...page.items] : page.items));
       setCursor(page.nextCursor);
@@ -41,12 +45,12 @@ export function RecordingsList() {
   }, []);
 
   useEffect(() => {
-    if (ready) void load(filters, null);
-  }, [ready, filters, load]);
+    if (ready && sortReady) void load(filters, null, sort);
+  }, [ready, sortReady, filters, sort, load]);
 
   const { wantsMore } = useListPlace(pages, items !== null, cursor === null);
   useEffect(() => {
-    if (cursor && wantsMore(pages)) void load(filters, cursor);
+    if (cursor && wantsMore(pages)) void load(filters, cursor, sort);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cursor, pages, wantsMore, load]);
 
@@ -57,11 +61,22 @@ export function RecordingsList() {
     <>
       <PageHeader title={qs("recordingsTitle")} icon={<AudioLines className="h-5 w-5" aria-hidden />} />
       <FilterBar filters={filters} onChange={setFilters} placeholder={qs("filterSearchRecordings")} />
+      <div className="mb-3 flex flex-wrap items-center justify-end gap-x-3 gap-y-2" data-recordings-sort={sort}>
+        <SegmentedChoice
+          label={qs("sortRecordingsBy")}
+          value={sort}
+          options={recordingSortOptions()}
+          disabled={!sortReady}
+          onChange={(next) => {
+            if (isRecordingSort(next)) choose(next);
+          }}
+        />
+      </div>
       {error ? (
         <div className="panel grid gap-3 p-4 text-center">
           <p className="text-sm text-ink-700">{error}</p>
           <ButtonRow>
-            <button type="button" className="field-button" onClick={() => void load(filters, null)}>
+            <button type="button" className="field-button" onClick={() => void load(filters, null, sort)}>
               {qs("tryAgain")}
             </button>
           </ButtonRow>
@@ -77,7 +92,7 @@ export function RecordingsList() {
               <RecordingChips chips={r.chips} onChip={onChip} filters={filters} />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Link
-                  className="min-w-0 max-w-full truncate text-sm text-purple-700 underline-offset-2 hover:underline"
+                  className="min-w-0 max-w-full truncate text-sm text-purple-700 underline-offset-2 hover:underline dark:text-purple-300"
                   href={`/questionnaire/sessions/${encodeURIComponent(r.sessionId)}/view`}
                 >
                   {r.chips?.session?.title || r.downloadName}
@@ -92,7 +107,7 @@ export function RecordingsList() {
       )}
       {cursor ? (
         <ButtonRow className="mt-4">
-          <button type="button" className="field-button-secondary" onClick={() => void load(filters, cursor)}>
+          <button type="button" className="field-button-secondary" onClick={() => void load(filters, cursor, sort)}>
             {qs("showMore")}
           </button>
         </ButtonRow>

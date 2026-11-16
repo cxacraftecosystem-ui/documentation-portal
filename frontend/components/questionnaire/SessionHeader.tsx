@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { useEffect, useRef, type ReactNode } from "react";
 
+import { useLeaveInterceptor } from "@/components/UnsavedChangesGuard";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import type { Session } from "@/lib/questionnaire/api";
 import { languageLabel } from "@/lib/questionnaire/languages";
@@ -49,6 +51,8 @@ export function SessionHeader({
   onReview?: () => void;
 }) {
   const ref = useRef<HTMLElement | null>(null);
+  const router = useRouter();
+  const interceptLeave: (leave: () => void) => boolean = useLeaveInterceptor();
   useEffect(() => {
     const node = ref.current;
     if (!node || typeof ResizeObserver === "undefined") return;
@@ -68,6 +72,10 @@ export function SessionHeader({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Link
           href="/questionnaire"
+          onClick={(event) => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+            if (interceptLeave(() => router.push("/questionnaire"))) event.preventDefault();
+          }}
           aria-label={qs("backToSessions")}
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-line-200 bg-card text-ink-900 transition hover:border-purple-300"
         >

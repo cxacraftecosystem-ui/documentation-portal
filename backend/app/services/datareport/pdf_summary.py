@@ -388,6 +388,7 @@ def _flowables() -> Any:
             rows: list[tuple[str, list[tuple[float, str]], str]],
             width: float,
             legend: list[tuple[str, str]] | None = None,
+            peak: float | None = None,
         ) -> None:
             super().__init__()
             self.rows = rows
@@ -399,16 +400,26 @@ def _flowables() -> Any:
             self.legend = legend or []
             self.legend_h = 18.0 if self.legend else 0.0
             self.box_h = len(rows) * (self.bar_h + self.row_gap) + self.legend_h
+            self.peak = peak or max((sum(v for v, _ in parts) for _, parts, _ in rows), default=0.0) or 1.0
 
         def wrap(self, avail_w: float, avail_h: float) -> tuple[float, float]:
             return self.box_w, self.box_h
+
+        def split(self, avail_w: float, avail_h: float) -> list[Flowable]:
+            fit = int((avail_h - self.legend_h) // (self.bar_h + self.row_gap))
+            if fit < 1 or fit >= len(self.rows):
+                return []
+            return [
+                type(self)(self.rows[:fit], self.box_w, self.legend, self.peak),
+                type(self)(self.rows[fit:], self.box_w, self.legend, self.peak),
+            ]
 
         def draw(self) -> None:
             from reportlab.lib import colors
 
             c = self.canv
             track = self.box_w - self.label_w - self.value_w - 12
-            peak = max((sum(v for v, _ in parts) for _, parts, _ in self.rows), default=0.0) or 1.0
+            peak = self.peak
             y = self.box_h - self.legend_h
             for label, parts, note in self.rows:
                 y -= self.bar_h + self.row_gap

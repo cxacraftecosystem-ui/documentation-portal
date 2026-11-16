@@ -64,7 +64,7 @@
     <string name="q_upload_failed_retrying">Upload failed. Retrying.</string>
     <string name="q_upload_on_wifi_only">Upload on Wi-Fi only</string>
     <string name="q_leave_title">Leave this session?</string>
-    <string name="q_leave_body_web">%1$s takes haven\'t uploaded. They stay on this device and upload when you return.</string>
+    <string name="q_leave_body_web">%1$s takes are still uploading. They keep going while this tab is open; if you close it, they finish next time you open your sessions.</string>
     <string name="q_leave_body_web_one">1 take is still uploading. It keeps going while this tab is open; if you close it, it finishes next time you open your sessions.</string>
     <string name="q_leave_recording_web">The take you\'re recording stops. You can keep it when you reopen this session.</string>
     <string name="q_leave_body_android">Uploading %1$s takes. They carry on in the background after you leave, and wait for signal if there is none.</string>

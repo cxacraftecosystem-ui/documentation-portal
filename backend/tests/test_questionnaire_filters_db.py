@@ -267,7 +267,7 @@ def test_the_recordings_list_filters_pages_and_carries_chips(monkeypatch: pytest
     async def body(c: Any, ids: SimpleNamespace) -> None:
         async def found(**params: Any) -> list[str]:
             f = filters.parse({"questionnaireId": ids.form, **params})
-            return [r["id"] for r in (await filters.list_recordings(f, ids.lead, limit=100, client=c))["items"]]
+            return [r["id"] for r in (await filters.list_recordings(f, ids.lead, limit=100, sort="recorded", client=c))["items"]]
 
         assert await found() == [ids.t3, ids.t2, ids.t1], "newest capture first"
         assert await found(artisanId=ids.a["a2"]) == [ids.t1], "an artisan who was only present finds the take"
@@ -283,10 +283,10 @@ def test_the_recordings_list_filters_pages_and_carries_chips(monkeypatch: pytest
         assert await found(q=f"Materials {ids.tag}") == [ids.t1], "and the section's title"
         assert await found(q=f"Ravi {ids.tag}") == [ids.t3], "and the artisans"
 
-        first = await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, limit=2, client=c)
+        first = await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, limit=2, sort="recorded", client=c)
         assert [r["id"] for r in first["items"]] == [ids.t3, ids.t2] and first["nextCursor"]
         rest = await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, limit=2,
-                                             cursor=first["nextCursor"], client=c)
+                                             cursor=first["nextCursor"], sort="recorded", client=c)
         assert [r["id"] for r in rest["items"]] == [ids.t1] and rest["nextCursor"] is None
 
         by_id = {r["id"]: r for r in (await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, client=c))["items"]}
@@ -305,6 +305,144 @@ def test_the_recordings_list_filters_pages_and_carries_chips(monkeypatch: pytest
         again = {r["id"]: r for r in (await filters.list_recordings(filters.parse({"questionnaireId": ids.form}), ids.lead, client=c))["items"]}
         assert again[ids.t2]["mediaType"] == "VIDEO", "a video take plays as video"
         assert again[ids.t1]["mediaType"] == "AUDIO"
+
+    _run(monkeypatch, body)
+
+
+def test_the_recordings_list_orders_by_upload_or_by_capture_and_pages_in_either(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import HTTPException
+
+    from app.questionnaire import filters
+
+    async def body(c: Any, ids: SimpleNamespace) -> None:
+        for rid, added in ((ids.t1, "2026-11-16T09:00:00"), (ids.t2, "2026-11-14T09:00:00"), (ids.t3, "2026-11-15T09:00:00")):
+            await c.execute_raw('UPDATE "QuestionnaireRecording" SET "createdAt" = $2::timestamp WHERE "id" = $1', rid, added)
+        f = filters.parse({"questionnaireId": ids.form})
+
+        async def listed(sort: str | None, cursor: str | None = None, limit: int = 100) -> dict[str, Any]:
+            return await filters.list_recordings(f, ids.lead, limit=limit, sort=sort, cursor=cursor, client=c)
+
+        default = await listed(None)
+        assert [r["id"] for r in default["items"]] == [ids.t1, ids.t3, ids.t2], "newest upload first unless asked otherwise"
+        assert default["sort"] == "added"
+        added = await listed("added")
+        assert [r["id"] for r in added["items"]] == [ids.t1, ids.t3, ids.t2]
+        recorded = await listed("recorded")
+        assert [r["id"] for r in recorded["items"]] == [ids.t3, ids.t2, ids.t1], "newest capture first"
+        assert recorded["sort"] == "recorded"
+        assert [r["capturedAt"][:10] for r in added["items"]] == ["2026-10-20", "2026-10-22", "2026-10-21"], "each row keeps its recorded date"
+
+        for sort, expected in (("added", [ids.t1, ids.t3, ids.t2]), ("recorded", [ids.t3, ids.t2, ids.t1])):
+            seen: list[str] = []
+            cursor = None
+            while True:
+                page = await listed(sort, cursor, limit=1)
+                seen.extend(r["id"] for r in page["items"])
+                cursor = page["nextCursor"]
+                if not cursor:
+                    break
+                assert cursor.startswith(f"{sort}|"), "the cursor carries its order"
+            assert seen == expected, f"paging by {sort} reaches every take once, in order"
+
+        one = await listed("added", limit=1)
+        with pytest.raises(HTTPException) as other_order:
+            await listed("recorded", one["nextCursor"], limit=1)
+        assert other_order.value.status_code == 422
+        newest = (await listed("recorded", limit=1))["nextCursor"]
+        legacy = newest.split("|", 1)[1]
+        assert [r["id"] for r in (await listed("recorded", legacy, limit=5))["items"]] == [ids.t2, ids.t1], "an older two-part cursor still pages by capture"
+        for bad in ("newest", "captured"):
+            with pytest.raises(HTTPException) as refused:
+                await listed(bad)
+            assert refused.value.status_code == 422
+
+    _run(monkeypatch, body)
+
+
+def test_a_sha_lookup_names_the_session_that_holds_the_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.questionnaire import recordings, schemas as S
+
+    async def body(c: Any, ids: SimpleNamespace) -> None:
+        sha = uuid.uuid4().hex * 2
+        media = (await c.query_raw('SELECT "mediaFileId" AS m FROM "QuestionnaireRecording" WHERE "id" = $1', ids.t3))[0]["m"]
+        await c.execute_raw('UPDATE "MediaFile" SET "contentSha256" = $2 WHERE "id" = $1', media, sha)
+        await c.execute_raw('UPDATE "QuestionnaireInterview" SET "title" = $2 WHERE "id" = $1', ids.s2, f"Interview_Ravi_{ids.tag}")
+        here = await recordings.sha_lookup(S.ShaLookupRequest(sha256s=[sha], sessionId=ids.s2), ids.lead, client=c)
+        assert here["items"] == [{
+            "sha": sha, "recordingId": ids.t3, "sessionId": ids.s2, "sameSession": True,
+            "sessionTitle": f"Interview_Ravi_{ids.tag}", "uploadedAt": here["items"][0]["uploadedAt"], "pending": False,
+        }]
+        elsewhere = await recordings.sha_lookup(S.ShaLookupRequest(sha256s=[sha], sessionId=ids.s1), ids.lead, client=c)
+        assert elsewhere["items"][0]["sameSession"] is False
+        assert elsewhere["items"][0]["sessionTitle"] == f"Interview_Ravi_{ids.tag}", "the other session is named, not only its id"
+        S.ShaLookup.model_validate(elsewhere)
+
+    _run(monkeypatch, body)
+
+
+def test_a_whole_session_take_can_cover_several_sections_and_counts_for_all_their_questions(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import HTTPException
+
+    from app.questionnaire import coverage, recordings, schemas as S, sessions
+
+    async def body(c: Any, ids: SimpleNamespace) -> None:
+        both = [S.TargetInput(sectionId=ids.sec["A"]), S.TargetInput(sectionId=ids.sec["B"])]
+        resolved = await coverage.resolve_targets(c, ids.form, both)
+        assert [t["targetKey"] for t in resolved] == [f"S:{ids.sec['A']}", f"S:{ids.sec['B']}"], "several section targets resolve in order"
+        whole = await _take(c, ids.s1, ids.lead, "2026-10-20T07:00:00", subjects=[(ids.a["a1"], "ANSWERED")])
+
+        def section_b(payload: dict[str, Any]) -> dict[str, Any]:
+            return next(s for s in payload["progress"]["sections"] if s["sectionId"] == ids.sec["B"])
+
+        before = await sessions.session_payload(c, ids.s1, ids.lead)
+        assert section_b(before)["inSectionTake"] is False
+        assert before["mayChangeTakes"] is True, "the session's lead may change its takes"
+        assert (await sessions.session_payload(c, ids.s1, ids.other))["mayChangeTakes"] is False, "a stranger may not"
+
+        marked = await recordings.patch(whole, S.RecordingPatch(version=1, targets=both), ids.lead, client=c)
+        assert sorted(t["sectionId"] for t in marked["targets"]) == sorted([ids.sec["A"], ids.sec["B"]])
+        assert marked["version"] == 2
+        after = await sessions.session_payload(c, ids.s1, ids.lead)
+        assert section_b(after)["inSectionTake"] is True, "the take now counts for every question in B"
+        assert section_b(after)["answeredQuestions"] == section_b(after)["totalQuestions"]
+
+        with pytest.raises(HTTPException) as stale:
+            await recordings.patch(whole, S.RecordingPatch(version=1, targets=[]), ids.lead, client=c)
+        assert stale.value.status_code == 409, "an old version is refused, not written over"
+        with pytest.raises(HTTPException) as refused:
+            await recordings.patch(whole, S.RecordingPatch(version=2, targets=[]), ids.other, client=c)
+        assert refused.value.status_code == 403
+        cleared = await recordings.patch(whole, S.RecordingPatch(version=2, targets=[]), ids.lead, client=c)
+        assert cleared["targets"] == [], "marked back to the whole session"
+
+    _run(monkeypatch, body)
+
+
+def test_the_latest_outbox_report_per_install_is_kept_and_listed_oldest_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime
+
+    from app.questionnaire import outbox_reports
+
+    async def body(c: Any, ids: SimpleNamespace) -> None:
+        def report(install: str, pending: int, failed: int, oldest: str | None) -> dict[str, Any]:
+            return {"installId": f"{install}-{ids.tag}", "pending": pending, "failed": failed,
+                    "oldestAt": datetime.fromisoformat(oldest).replace(tzinfo=UTC) if oldest else None}
+
+        await outbox_reports.record(ids.lead.id, report("phone", 3, 1, "2026-11-15T08:00:00"), "android", "0.0.7", client=c)
+        await outbox_reports.record(ids.lead.id, report("phone", 1, 0, "2026-11-16T08:00:00"), "android", "0.0.7", client=c)
+        held = await c.query_raw('SELECT "pending", "failed" FROM "DeviceOutboxReport" WHERE "userId" = $1', ids.lead.id)
+        assert [(r["pending"], r["failed"]) for r in held] == [(3, 1)], "a second write inside the minute is not kept"
+        await c.execute_raw('UPDATE "DeviceOutboxReport" SET "reportedAt" = "reportedAt" - interval \'2 minutes\' WHERE "userId" = $1', ids.lead.id)
+        await outbox_reports.record(ids.lead.id, report("phone", 1, 0, "2026-11-16T08:00:00"), "android", "0.0.8", client=c)
+        held = await c.query_raw('SELECT "pending", "appVersion" FROM "DeviceOutboxReport" WHERE "userId" = $1', ids.lead.id)
+        assert [(r["pending"], r["appVersion"]) for r in held] == [(1, "0.0.8")], "the latest report replaces the last one"
+        await outbox_reports.record(ids.lead.id, report("browser", 0, 0, None), "web", "web-1", client=c)
+        await outbox_reports.record(ids.other.id, report("tablet", 2, 2, "2026-11-10T08:00:00"), "android", "0.0.6", client=c)
+        listed = await outbox_reports.holding(client=c)
+        mine = [i for i in listed["items"] if i["userId"] in (ids.lead.id, ids.other.id)]
+        assert [i["installId"] for i in mine] == [f"tablet-{ids.tag}", f"phone-{ids.tag}"], "pending > 0 only, oldest first"
+        assert mine[0]["name"] == ids.other.name and mine[0]["platform"] == "android" and mine[0]["failed"] == 2
+        assert mine[0]["oldestAt"] == "2026-11-10T08:00:00Z" and mine[0]["reportedAt"]
 
     _run(monkeypatch, body)
 

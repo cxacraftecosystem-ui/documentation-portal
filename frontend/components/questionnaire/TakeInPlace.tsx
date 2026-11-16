@@ -1,14 +1,15 @@
 "use client";
 
-import { ChevronUp, Expand, Play } from "lucide-react";
+import { ChevronUp, Expand, Play, RefreshCw } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { PreviewDialog, PreviewInline } from "@/components/dataExplorer/PreviewDialog";
 import { queuedBlob } from "@/components/questionnaire/useSessionQueue";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import type { TreeEntry } from "@/lib/dataExplorer/contract";
 import type { DownloadRequest } from "@/lib/dataExplorer/downloads";
 import { qs } from "@/lib/questionnaire/qs";
-import { fullEntry, localTakeEntry, nextOpen, regionId, takeEntry, type OpenTake, type TakeItem } from "@/lib/questionnaire/takeInPlace";
+import { fullEntry, localTakeEntry, nextOpen, regionId, takeEntry, type OpenTake, type TakeItem, type TakeUpload } from "@/lib/questionnaire/takeInPlace";
 
 export type { TakeItem };
 
@@ -88,13 +89,38 @@ function TakePreview({ item, player }: { item: TakeItem; player: TakePlayer }) {
   return <PreviewInline entry={localTakeEntry(item, local)} onDownload={player.onDownload} emptyText={qs("transcriptAfterUpload")} />;
 }
 
-export function TakeRow({ player, slot, item, lead, playLabel }: { player: TakePlayer; slot: string; item: TakeItem; lead: ReactNode; playLabel?: string }) {
+export const REVEAL_MARGINS =
+  "scroll-mt-[calc(var(--session-header-h,0px)+1rem)] scroll-mb-[calc(var(--session-dock-h,0px)+var(--bottom-nav-h,0px)+1rem)] lg:scroll-mt-[calc(var(--session-header-h,0px)+5.25rem)]";
+
+export const TAKE_RETRY_CLASS =
+  "inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md border border-purple-600 bg-purple-50 px-3 text-sm font-semibold text-purple-800 transition hover:border-purple-700 hover:bg-purple-100 sm:min-h-9 pointer-coarse:min-h-11 dark:border-purple-500 dark:bg-purple-950 dark:text-purple-200 dark:hover:border-purple-400 dark:hover:bg-purple-900";
+
+export function TakeUploadLine({ upload, name, words = false }: { upload: TakeUpload; name: string; words?: boolean }) {
+  const failed = upload.state === "FAILED" || upload.state === "RETRYING";
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2" data-take-upload={upload.state}>
+      {words ? <span className={`text-[0.8125rem] ${failed ? "text-error-600 dark:text-red-300" : "text-ink-500"}`}>{upload.words}</span> : null}
+      {upload.state === "UPLOADING" ? <ProgressBar percent={upload.percent} className="h-1.5 w-full max-w-60" aria-hidden /> : null}
+      {failed && upload.retry ? (
+        <button type="button" className={TAKE_RETRY_CLASS} aria-label={`${qs("retry")} · ${name}`} onClick={upload.retry} data-take-retry>
+          <RefreshCw className="h-4 w-4" aria-hidden />
+          {qs("retry")}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+export function TakeRow({ player, slot, item, lead, playLabel, uploadWords = false }: { player: TakePlayer; slot: string; item: TakeItem; lead: ReactNode; playLabel?: string; uploadWords?: boolean }) {
   const open = player.isOpen(slot, item.key);
   const region = regionId(slot, item.key);
   const full = fullEntry(item);
   return (
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1" data-take-row-in-place={item.key} data-take-open={open ? "" : undefined}>
-      <div className="min-w-0">{lead}</div>
+    <div className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 ${REVEAL_MARGINS}`} data-take-row-in-place={item.key} data-take-open={open ? "" : undefined}>
+      <div className="grid min-w-0 flex-[1_1_12rem] gap-1.5">
+        {lead}
+        {item.upload ? <TakeUploadLine upload={item.upload} name={playLabel ?? item.label} words={uploadWords} /> : null}
+      </div>
       <div className="flex shrink-0 items-center gap-2">
         {open ? (
           <>

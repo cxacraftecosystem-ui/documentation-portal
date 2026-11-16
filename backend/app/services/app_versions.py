@@ -91,6 +91,21 @@ async def _record_quietly(user_id: str, platform: str, code: int, name: str | No
         logger.info("app version not recorded (%s)", type(exc).__name__)
 
 
+def note_outbox(scope: dict[str, Any], user_id: str) -> None:
+    from app.questionnaire import outbox_reports
+
+    report = outbox_reports.report_from_scope(scope)
+    if report is None:
+        return
+    build = build_of(scope)
+    if build is None:
+        platform, version = (_header(scope, b"x-app-platform").lower() or "unknown")[:16], (_header(scope, b"x-app-version") or None)
+    else:
+        platform, code, name = build
+        version = name or (str(code) if code else None)
+    outbox_reports.schedule(user_id, report, platform, version)
+
+
 class AppVersionMiddleware:
     def __init__(self, app: Any) -> None:
         self.app = app
@@ -111,6 +126,7 @@ class AppVersionMiddleware:
             user_id = state.get(SCOPE_USER_KEY) if isinstance(state, dict) else getattr(state, SCOPE_USER_KEY, None)
             if not user_id:
                 return
+            note_outbox(scope, str(user_id))
             build = build_of(scope)
             if build is None:
                 return

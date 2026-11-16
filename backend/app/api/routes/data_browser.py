@@ -105,6 +105,7 @@ from app.services.tool_scope import (
     TOOL_SCOPE_INCLUDE,
     hide_unseen,
     tool_artisan_ids,
+    tool_artisan_names,
     with_tool_scope,
 )
 from app.services.transcript_format import transcript_cell
@@ -454,7 +455,7 @@ _NAMING_INCLUDE: dict[str, Any] = {
     "craft": True,
     "workshop": True,
     "product": True,
-    "tool": True,
+    "tool": {"include": {"artisan": True, "artisanLinks": {"include": {"artisan": True}}}},
     "questionnaireInterview": {"include": {"artisans": {"include": {"artisan": True}}}},
 }
 
@@ -2209,7 +2210,7 @@ def _hierarchy_of(kind: str, record: Any) -> tuple[str, str, str]:
         return (
             _cell(getattr(getattr(record, "workshop", None), "title", None)),
             _cell(record.craftName),
-            _cell(record.artisanName),
+            _cell(tool_artisan_names(record) if kind == "tool" else record.artisanName),
         )
     if kind == "process":
         product = getattr(record, "product", None)
@@ -2270,7 +2271,7 @@ def _media_context(
         artisan_name = artisan_name or _cell(product.artisanName)
     if tool is not None:
         craft_name = craft_name or _cell(tool.craftName)
-        artisan_name = artisan_name or _cell(tool.artisanName)
+        artisan_name = artisan_name or _cell(tool_artisan_names(tool))
     if artisan is not None and not craft_name:
         craft_name = _cell(getattr(getattr(artisan, "craft", None), "name", None))
 

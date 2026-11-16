@@ -172,12 +172,16 @@ export function audioFile(dir: string, name: string, seconds = 1): { path: strin
 
 export type Target = { sectionId: string } | { questionLineageId: string };
 
-export async function uploadTake(session: Session, target: Target | null, options: { who?: Who; artisans?: string[]; durationMs?: number; bytes?: Uint8Array } = {}) {
+export async function uploadTake(
+  session: Session,
+  target: Target | null,
+  options: { who?: Who; artisans?: string[]; durationMs?: number; bytes?: Uint8Array; capturedAt?: string } = {}
+) {
   const api = as(options.who ?? "lead");
   const store = memoryQueueStore();
   const bytes = options.bytes ?? audioBytes();
   const hash = createHash("sha256").update(bytes).digest("hex");
-  const at = new Date().toISOString();
+  const at = options.capturedAt ?? new Date().toISOString();
   const names = options.artisans ?? [MEERA];
   const targets = target ? [target] : [];
   const step: ClipStep = {
@@ -264,6 +268,20 @@ export async function boardSession(options: { recordBy?: RecordBy } = {}): Promi
 }
 
 export const sessionPath = (session: Pick<Session, "id">) => `/questionnaire/sessions/${encodeURIComponent(session.id)}`;
+
+export async function holdUploads(page: Page): Promise<() => void> {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => (release = () => resolve()));
+  await page.route(
+    (url) => url.port === new URL(process.env.AWS_S3_ENDPOINT ?? "http://127.0.0.1:9000").port,
+    async (route) => {
+      if (route.request().method() !== "PUT") return route.fallback();
+      await gate;
+      await route.fallback();
+    }
+  );
+  return release;
+}
 
 export async function openSession(page: Page, session: Pick<Session, "id">) {
   await page.goto(sessionPath(session));

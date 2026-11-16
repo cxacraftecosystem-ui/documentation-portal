@@ -27,6 +27,7 @@ import {
 } from "@/lib/unifiedSearch";
 import { locateRecord } from "@/components/dataExplorer/paletteSearch";
 import { SortMenu, useRememberedSort } from "@/components/dataExplorer/SortMenu";
+import { addressSearch, askAddress } from "@/lib/dataExplorer/address";
 import { effectiveSort, readSort, type SortChoice } from "@/lib/dataExplorer/sorting";
 import { OpenableBlock } from "@/components/records/OpenableRow";
 import { useAuth } from "@/components/AuthProvider";
@@ -326,10 +327,10 @@ export function DataSearchPanel({ onReveal, onPreview, ask = null, portalScope =
 
   const writeSearch = useCallback(
     (nextState: SearchState, nextFocus: UnifiedType | null) => {
-      const current = window.location.search.replace(/^\?/, "");
+      const current = addressSearch();
       const next = searchToParams(nextState, nextFocus, current);
       if (next === current) return;
-      router.replace(`${pathname}${next ? `?${next}` : ""}`, { scroll: false });
+      router.replace(askAddress(`${pathname}${next ? `?${next}` : ""}`), { scroll: false });
     },
     [pathname, router]
   );

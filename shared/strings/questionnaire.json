@@ -68,7 +68,7 @@
     "uploadFailedRetrying": "Upload failed. Retrying.",
     "uploadOnWifiOnly": "Upload on Wi-Fi only",
     "leaveTitle": "Leave this session?",
-    "leaveBodyWeb": "{count} takes haven't uploaded. They stay on this device and upload when you return.",
+    "leaveBodyWeb": "{count} takes are still uploading. They keep going while this tab is open; if you close it, they finish next time you open your sessions.",
     "leaveBodyWebOne": "1 take is still uploading. It keeps going while this tab is open; if you close it, it finishes next time you open your sessions.",
     "leaveRecordingWeb": "The take you're recording stops. You can keep it when you reopen this session.",
     "leaveBodyAndroid": "Uploading {count} takes. They carry on in the background after you leave, and wait for signal if there is none.",

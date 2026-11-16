@@ -1,6 +1,7 @@
 "use client";
 
 import { BudgetMeterCard } from "@/components/transcript/BudgetMeterCard";
+import { PhonesHoldingRecordings } from "@/components/questionnaire/PhonesHoldingRecordings";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
@@ -244,6 +245,8 @@ export default function AdminHubPage() {
       <div className="mt-6">
         <BudgetMeterCard />
       </div>
+
+      <PhonesHoldingRecordings />
 
       <section id="recovered-recordings" className="panel mt-6 overflow-hidden">
         <div className="border-b border-line-200 px-4 py-3">

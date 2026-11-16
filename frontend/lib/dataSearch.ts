@@ -3,6 +3,7 @@ import { recordViewHref } from "@/lib/recordView";
 import type { Artisan, MediaFile, ProductDocumentation, ToolDocumentation, Workshop } from "@/lib/types";
 import { UNIFIED_TYPES, type Portal, type UnifiedItem, type UnifiedResponse, type UnifiedType } from "@/lib/unifiedSearch";
 import { workshopDisplayTitle } from "@/lib/workshopTitle";
+import { toolArtisanNames } from "@/lib/toolArtisans";
 
 export const LOCAL_PORTAL: Portal = "fieldRepository";
 
@@ -162,7 +163,7 @@ export function legacyRows(result: LegacyResult): Row[] {
     ...(result.artisans ?? []).map((a) => ({ ...base, type: "artisans" as UnifiedType, id: a.id, title: a.name, subtitle: [a.craft?.name, a.place].filter(Boolean).join(" · "), href: recordViewHref("artisan", a.id) ?? "" })),
     ...(result.workshops ?? []).map((w) => ({ ...base, type: "workshops" as UnifiedType, id: w.id, title: workshopDisplayTitle(w), subtitle: w.place ?? null, href: recordViewHref("workshop", w.id) ?? "" })),
     ...(result.products ?? []).map((p) => ({ ...base, type: "products" as UnifiedType, id: p.id, title: p.productName, subtitle: p.artisanName ?? null, href: recordViewHref("product", p.id) ?? "" })),
-    ...(result.tools ?? []).map((t) => ({ ...base, type: "tools" as UnifiedType, id: t.id, title: t.toolkitName, subtitle: t.artisanName ?? null, href: recordViewHref("tool", t.id) ?? "" })),
+    ...(result.tools ?? []).map((t) => ({ ...base, type: "tools" as UnifiedType, id: t.id, title: t.toolkitName, subtitle: toolArtisanNames(t), href: recordViewHref("tool", t.id) ?? "" })),
     ...(result.media ?? []).map((m) => ({ ...base, type: "media" as UnifiedType, id: m.id, title: m.caption || m.originalFilename, subtitle: m.mediaType ?? null, href: `/media/${encodeURIComponent(m.id)}` }))
   ];
 }

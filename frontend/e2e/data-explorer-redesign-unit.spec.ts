@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { legacyHits, locatedOf, recordPageHref, unifiedHits } from "@/components/dataExplorer/paletteSearch";
+import { addressSearch, askAddress, searchOf, settleAddress } from "@/lib/dataExplorer/address";
 import { extraOn, reportOptionParams, withExtra } from "@/lib/dataExplorer/api";
 import { DEFAULT_REPORT_OPTIONS, withReportDefaults, type ReportResponse, type TreeEntry } from "@/lib/dataExplorer/contract";
 import { fileNameFrom, looksLikeZip, nextToStart, OUTCOME_CARD, outcomeOf, retryDelaySeconds, ROW_TONE_CLASS, TONE_CLASS, toneOf, trayHeadline, type DownloadItem } from "@/lib/dataExplorer/downloads";
@@ -255,6 +256,17 @@ test.describe("@qf:X16 the command palette's search", () => {
       ["tools", "Vat stirrer", "Tool"]
     ]);
   });
+
+  test("a legacy tool hit names every artisan of the tool, head first, once each", () => {
+    const grinder = {
+      id: "t2",
+      toolkitName: "Grinder",
+      artisanId: "a-fahim",
+      artisanName: "Fahim",
+      artisanLinks: [{ artisan: { id: "a-moin", name: "Moin Khan" } }, { artisan: { id: "a-fahim", name: "Fahim" } }]
+    };
+    expect(legacyHits({ tools: [grinder] }).map((hit) => hit.subtitle)).toEqual(["Tool · Fahim, Moin Khan"]);
+  });
 });
 
 test("report filters: chips name what narrows the report, and an empty result is spotted before any download", () => {
@@ -321,4 +333,16 @@ test("the pager stops when the server repeats a cursor", () => {
   expect(followingCursor("25", "25", new Set(["25"]))).toBeNull();
   expect(followingCursor("50", "25", new Set(["25", "50"]))).toBeNull();
   expect(followingCursor("50", null, new Set(["50"]))).toBeNull();
+});
+
+test("an address write builds on the one still in flight, so the search never drops the folder the explorer asked for", () => {
+  expect(searchOf("/data?path=workshops&sq=artisan#top")).toBe("path=workshops&sq=artisan");
+  expect(searchOf("/data")).toBe("");
+  const asked = { search: "path=workshops", from: "" };
+  expect(settleAddress(asked, "")).toEqual({ pending: asked, search: "path=workshops" });
+  expect(settleAddress(asked, "path=workshops"), "once the address lands it is read as it is").toEqual({ pending: null, search: "path=workshops" });
+  expect(settleAddress(asked, "sq=kamla"), "Back or another writer moved it: the old request is forgotten").toEqual({ pending: null, search: "sq=kamla" });
+  expect(settleAddress(null, "view=tables")).toEqual({ pending: null, search: "view=tables" });
+  expect(addressSearch("?path=crafts"), "with no window it reads the caller's own parameters").toBe("path=crafts");
+  expect(askAddress("/data?path=crafts")).toBe("/data?path=crafts");
 });

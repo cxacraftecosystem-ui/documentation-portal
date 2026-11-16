@@ -614,8 +614,8 @@ test("@qf:Q3 @qf:Q4 the upload dialog takes several files, flags and skips one a
   await openSection(page, "B");
   await page.locator("[data-section-body='B'] [data-upload-button]").click();
   const sheet = page.getByRole("dialog", { name: "Upload recordings" });
-  await expect(sheet.getByRole("radio", { name: "Section B" })).toHaveAttribute("aria-checked", "true");
-  await expect(sheet).toContainText("Counts for all 1 questions in B");
+  await expect(sheet.getByRole("radio", { name: "Sections" })).toHaveAttribute("aria-checked", "true");
+  await expect(sheet).toContainText("Counts for all questions in B");
   await sheet.locator("[data-upload-input]").setInputFiles([
     { name: "Giriraj_part1.m4a", mimeType: "audio/mp4", buffer: kept },
     { name: "Giriraj_part2.m4a", mimeType: "audio/mp4", buffer: again }

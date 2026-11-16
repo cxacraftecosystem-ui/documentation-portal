@@ -4,15 +4,32 @@ import { AlertTriangle, Check, Upload, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
+import { SectionsChooser } from "@/components/questionnaire/SectionsChooser";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { questionnaireApi, mintKey, type ShaMatch } from "@/lib/questionnaire/api";
 import { sha256Hex } from "@/lib/questionnaire/hashFile";
 import { shortDate } from "@/lib/questionnaire/prompts";
 import { qs } from "@/lib/questionnaire/qs";
-import { flagDuplicates, recordedAtOf, toUpload, type UploadRow } from "@/lib/questionnaire/uploads";
+import { coverIds } from "@/lib/questionnaire/sectionCover";
+import { duplicateStates, duplicateView, recordedAtOf, toUpload, type DuplicateOpen, type QueuedCopy, type UploadRow } from "@/lib/questionnaire/uploads";
 
-export type UploadTarget = { kind: "SECTION"; sectionId: string } | { kind: "QUESTION"; lineageId: string } | { kind: "SESSION" };
+export type { DuplicateOpen };
+
+export type UploadTarget =
+  | { kind: "SECTION"; sectionId: string }
+  | { kind: "SECTIONS"; sectionIds: string[] }
+  | { kind: "QUESTION"; lineageId: string }
+  | { kind: "SESSION" };
+
+type AttachMode = "SECTIONS" | "QUESTION" | "SESSION";
+
+export function attachDefaults(defaultTarget: UploadTarget, openSection: string | null): { mode: AttachMode; sectionIds: string[] } {
+  const sectionIds =
+    defaultTarget.kind === "SECTION" ? [defaultTarget.sectionId] : defaultTarget.kind === "SECTIONS" ? defaultTarget.sectionIds : openSection ? [openSection] : [];
+  const mode: AttachMode = defaultTarget.kind === "QUESTION" ? "QUESTION" : defaultTarget.kind === "SESSION" ? "SESSION" : "SECTIONS";
+  return { mode, sectionIds };
+}
 
 export type UploadSection = { id: string; code: string; title: string; questions: { lineageId: string; displayCode: string; prompt: string }[] };
 
@@ -65,25 +82,28 @@ export function UploadSheet({
   sections,
   sectionId,
   defaultTarget,
-  queuedShas,
+  queued,
   onClose,
-  onUpload
+  onUpload,
+  onOpenDuplicate
 }: {
   sessionId: string | null;
   sessionDate: string | null;
   sections: UploadSection[];
   sectionId: string | null;
   defaultTarget: UploadTarget;
-  queuedShas: Record<string, string>;
+  queued: Record<string, QueuedCopy>;
   onClose: () => void;
   onUpload: (rows: UploadRow[], target: UploadTarget) => void;
+  onOpenDuplicate?: (open: DuplicateOpen) => void;
 }) {
   const inputId = useId();
   const labelId = useId();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [picked, setRows] = useState<UploadRow[]>([]);
-  const [target, setTarget] = useState<UploadTarget>(defaultTarget);
+  const [mode, setMode] = useState<AttachMode>(() => attachDefaults(defaultTarget, sectionId).mode);
   const [question, setQuestion] = useState<string>(defaultTarget.kind === "QUESTION" ? defaultTarget.lineageId : "");
+  const [chosenSections, setChosenSections] = useState<string[]>(() => attachDefaults(defaultTarget, sectionId).sectionIds);
   const [dragging, setDragging] = useState(false);
   const [found, setFound] = useState<{ key: string; matches: ShaMatch[] }>({ key: "", matches: [] });
   const shaKey = [...new Set(picked.map((r) => r.sha).filter((sha): sha is string => Boolean(sha)))].sort().join(",");
@@ -107,8 +127,8 @@ export function UploadSheet({
     };
   }, [shaKey, sessionId]);
 
-  const flagged = flagDuplicates(picked, found.matches, queuedShas, sessionDate);
-  const rows = picked.map((r) => ({ ...r, duplicateOn: flagged[r.key] ?? null }));
+  const states = duplicateStates(picked, found.matches, queued, sessionDate);
+  const rows = picked.map((r) => ({ ...r, duplicateOn: states[r.key]?.at ?? null, duplicate: states[r.key] ?? null }));
 
   async function add(files: FileList | File[] | null) {
     const picked = Array.from(files ?? []).filter((f) => f.type.startsWith("audio/") || f.type.startsWith("video/") || !f.type);
@@ -127,11 +147,19 @@ export function UploadSheet({
 
   const ready = toUpload(rows).filter((r) => r.sha !== null);
   const hashing = rows.some((r) => r.sha === null);
-  const chosen: UploadTarget = target.kind === "QUESTION" ? { kind: "QUESTION", lineageId: question } : target;
+  const chosen: UploadTarget =
+    mode === "QUESTION"
+      ? { kind: "QUESTION", lineageId: question }
+      : mode === "SECTIONS"
+        ? { kind: "SECTIONS", sectionIds: coverIds(sections, chosenSections) }
+        : { kind: "SESSION" };
   const online = typeof navigator === "undefined" || navigator.onLine !== false;
-  const blocked = uploadBlocked({ ready: ready.length, hashing, shaKey, checkedKey: found.key, online }) || (chosen.kind === "QUESTION" && !chosen.lineageId);
-  const options: { kind: UploadTarget["kind"]; label: string }[] = [
-    ...(section ? [{ kind: "SECTION" as const, label: qs("chipSection", { code: section.code }) }] : []),
+  const blocked =
+    uploadBlocked({ ready: ready.length, hashing, shaKey, checkedKey: found.key, online }) ||
+    (chosen.kind === "QUESTION" && !chosen.lineageId) ||
+    (chosen.kind === "SECTIONS" && !chosen.sectionIds.length);
+  const options: { kind: AttachMode; label: string }[] = [
+    { kind: "SECTIONS", label: qs("attachSections") },
     { kind: "QUESTION", label: qs("attachQuestion") },
     { kind: "SESSION", label: qs("wholeSession") }
   ];
@@ -179,45 +207,69 @@ export function UploadSheet({
 
         {rows.length ? (
           <ul className="grid gap-2.5" data-upload-rows>
-            {rows.map((row) => (
-              <li key={row.key} className="grid gap-2.5 rounded-md border border-line-200 py-3 pl-3.5 pr-2" data-upload-row={row.file.name} data-duplicate={row.duplicateOn ? "" : undefined}>
-                <div className="flex items-center gap-3">
-                  <span
-                    aria-hidden
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-sm ${
-                      row.duplicateOn ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100" : "bg-success-100 text-success-600 dark:bg-success-600/25 dark:text-green-400"
-                    }`}
-                  >
-                    {row.duplicateOn ? <AlertTriangle className="h-4.5 w-4.5" /> : <Check className="h-4.5 w-4.5" />}
-                  </span>
-                  <span className="grid min-w-0 flex-1 gap-0.5">
-                    <span className="truncate text-[0.9375rem] font-semibold text-ink-900">{row.file.name}</span>
-                    <span className="text-[0.8125rem] text-ink-500">
-                      {clock(row.durationMs) ? qs("uploadFileMeta", { duration: clock(row.durationMs), date: stampLabel(row.recordedAt) }) : stampLabel(row.recordedAt)}
-                    </span>
-                  </span>
-                  {row.duplicateOn ? (
-                    <button type="button" className="field-button-secondary min-h-11 font-semibold" onClick={() => setRows(rows.filter((r) => r.key !== row.key))}>
-                      {qs("remove")}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      aria-label={qs("removeNamed", { name: row.file.name })}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-700 hover:bg-field-100"
-                      onClick={() => setRows(rows.filter((r) => r.key !== row.key))}
+            {rows.map((row) => {
+              const view = row.duplicate ? duplicateView(row.duplicate) : null;
+              const open = view?.open && onOpenDuplicate ? view.open : null;
+              return (
+                <li key={row.key} className="grid gap-2.5 rounded-md border border-line-200 py-3 pl-3.5 pr-2" data-upload-row={row.file.name} data-duplicate={row.duplicate ? row.duplicate.kind : undefined}>
+                  <div className="flex items-center gap-3">
+                    <span
+                      aria-hidden
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-sm ${
+                        row.duplicateOn ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100" : "bg-success-100 text-success-600 dark:bg-success-600/25 dark:text-green-400"
+                      }`}
                     >
-                      <X className="h-4.5 w-4.5" aria-hidden />
-                    </button>
-                  )}
-                </div>
-                {row.duplicateOn ? (
-                  <span className="ml-12 w-fit rounded-sm bg-amber-100 px-2.5 py-1 text-[0.8125rem] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-100" data-already-uploaded>
-                    {qs("alreadyUploadedOn", { date: shortDate(row.duplicateOn) })}
-                  </span>
-                ) : null}
-              </li>
-            ))}
+                      {row.duplicateOn ? <AlertTriangle className="h-4.5 w-4.5" /> : <Check className="h-4.5 w-4.5" />}
+                    </span>
+                    <span className="grid min-w-0 flex-1 gap-0.5">
+                      <span className="truncate text-[0.9375rem] font-semibold text-ink-900">{row.file.name}</span>
+                      <span className="text-[0.8125rem] text-ink-500">
+                        {clock(row.durationMs) ? qs("uploadFileMeta", { duration: clock(row.durationMs), date: stampLabel(row.recordedAt) }) : stampLabel(row.recordedAt)}
+                      </span>
+                    </span>
+                    {row.duplicateOn ? (
+                      <button type="button" className="field-button-secondary min-h-11 font-semibold" onClick={() => setRows(rows.filter((r) => r.key !== row.key))}>
+                        {qs("remove")}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={qs("removeNamed", { name: row.file.name })}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-700 hover:bg-field-100"
+                        onClick={() => setRows(rows.filter((r) => r.key !== row.key))}
+                      >
+                        <X className="h-4.5 w-4.5" aria-hidden />
+                      </button>
+                    )}
+                  </div>
+                  {view ? (
+                    <div className="ml-12 grid min-w-0 justify-items-start gap-1">
+                      <span className="w-fit rounded-sm bg-amber-100 px-2.5 py-1 text-[0.8125rem] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-100" data-already-uploaded>
+                        {view.chip}
+                      </span>
+                      {view.where ? (
+                        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-3" data-duplicate-where>
+                          <span className="min-w-0 max-w-full truncate text-[0.8125rem] text-ink-700" title={view.where}>
+                            {view.where}
+                          </span>
+                          {open ? (
+                            <button
+                              type="button"
+                              className="min-h-11 text-sm font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300"
+                              aria-label={qs("openDuplicateNamed", { name: row.file.name })}
+                              onClick={() => onOpenDuplicate?.(open)}
+                              data-duplicate-open={open.kind}
+                            >
+                              {qs("openDuplicate")}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         ) : null}
 
@@ -227,7 +279,7 @@ export function UploadSheet({
           </span>
           <div role="radiogroup" aria-labelledby={labelId} className="flex gap-1 rounded-md border border-line-200 bg-surface-50 p-1">
             {options.map((option) => {
-              const on = target.kind === option.kind;
+              const on = mode === option.kind;
               return (
                 <button
                   key={option.kind}
@@ -235,17 +287,15 @@ export function UploadSheet({
                   role="radio"
                   aria-checked={on}
                   className={`min-h-11 flex-1 rounded-sm px-1.5 text-sm ${on ? "bg-purple-700 font-semibold text-white" : "font-medium text-ink-700 hover:bg-field-100"}`}
-                  onClick={() => setTarget(option.kind === "SECTION" && section ? { kind: "SECTION", sectionId: section.id } : option.kind === "QUESTION" ? { kind: "QUESTION", lineageId: question } : { kind: "SESSION" })}
+                  onClick={() => setMode(option.kind)}
                 >
                   {option.label}
                 </button>
               );
             })}
           </div>
-          {target.kind === "SECTION" && section ? (
-            <span className="text-sm text-ink-500">{qs("countsForAllQuestions", { count: section.questions.length, code: section.code })}</span>
-          ) : null}
-          {target.kind === "QUESTION" ? (
+          {mode === "SECTIONS" ? <SectionsChooser sections={sections} values={chosenSections} onChange={setChosenSections} /> : null}
+          {mode === "QUESTION" ? (
             <SearchableSelect
               value={question}
               onChange={setQuestion}

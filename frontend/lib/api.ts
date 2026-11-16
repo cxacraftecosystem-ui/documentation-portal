@@ -2,6 +2,7 @@ import { SESSION_ENDED_PATH, sessionEndedHref } from "@/lib/sessionReturn";
 import type { PageResult } from "@/lib/types";
 
 import { endSession, getSessionMarker } from "@/lib/session";
+import { outboxHeaders } from "@/lib/questionnaire/outboxReport";
 
 export const API_BASE = "";
 
@@ -225,6 +226,7 @@ export async function apiFetchWithHeaders<T>(
   headers.set("X-App-Version", APP_VERSION);
   headers.set("X-App-Platform", APP_PLATFORM);
   if (APP_VERSION_CODE) headers.set("X-App-Version-Code", APP_VERSION_CODE);
+  for (const [name, value] of Object.entries(outboxHeaders())) if (!headers.has(name)) headers.set(name, value);
 
   const response = await fetch(`${API_BASE}/api${path}`, {
     ...init,

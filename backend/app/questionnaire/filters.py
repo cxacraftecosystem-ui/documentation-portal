@@ -320,25 +320,50 @@ _RECORDING_FROM = (
 )
 
 
+RECORDING_SORTS = {"added": "createdAt", "recorded": "capturedAt"}
+DEFAULT_RECORDING_SORT = "added"
+
+
+def recording_sort(value: str | None) -> str:
+    sort = (value or DEFAULT_RECORDING_SORT).strip().lower()
+    if sort not in RECORDING_SORTS:
+        fail("VALIDATION_FAILED", f"sort must be one of {', '.join(RECORDING_SORTS)}.")
+    return sort
+
+
+def recording_cursor(sort: str, stamp: str, rid: str) -> str:
+    return f"{sort}|{stamp.replace('Z', '').replace('+00:00', '')}|{rid}"
+
+
+def read_recording_cursor(cursor: str, sort: str) -> tuple[str, str]:
+    parts = cursor.split("|")
+    if len(parts) == 2:
+        parts = ["recorded", *parts]
+    if len(parts) != 3 or not parts[1] or not parts[2]:
+        fail("VALIDATION_FAILED", "Bad cursor.")
+    if parts[0] != sort:
+        fail("VALIDATION_FAILED", "That cursor belongs to the other order; start again from the first page.")
+    return parts[1], parts[2]
+
+
 async def list_recordings(f: Filters, user: Any = None, *, session_id: str | None = None, cursor: str | None = None,
-                          limit: int = 30, client: Any = None) -> dict[str, Any]:
+                          limit: int = 30, sort: str | None = None, client: Any = None) -> dict[str, Any]:
     from app.questionnaire import recordings
 
     db = client or ports.db()
     limit = max(1, min(int(limit or 30), PAGE_MAX))
+    order = recording_sort(sort)
+    column = RECORDING_SORTS[order]
     b = Sql()
     w = recording_where(f, b, await ports.records.transcript_scope(user))
     if session_id:
         w.append(f'm."questionnaireInterviewId" = {b.p(session_id)}')
     if cursor:
-        try:
-            at, rid = cursor.split("|", 1)
-        except ValueError:
-            fail("VALIDATION_FAILED", "Bad cursor.")
-        w.append(f'(r."capturedAt", r."id") < ({b.p(at)}::timestamp, {b.p(rid)})')
+        at, rid = read_recording_cursor(cursor, order)
+        w.append(f'(r."{column}", r."id") < ({b.p(at)}::timestamp, {b.p(rid)})')
     page = await db.query_raw(
-        'SELECT r."id", r."capturedAt" ' + _RECORDING_FROM + "WHERE " + " AND ".join(w)
-        + f' ORDER BY r."capturedAt" DESC, r."id" DESC LIMIT {limit + 1}',
+        f'SELECT r."id", r."{column}" AS "orderedAt" ' + _RECORDING_FROM + "WHERE " + " AND ".join(w)
+        + f' ORDER BY r."{column}" DESC, r."id" DESC LIMIT {limit + 1}',
         *b.params,
     )
     more = len(page) > limit
@@ -351,9 +376,8 @@ async def list_recordings(f: Filters, user: Any = None, *, session_id: str | Non
     next_cursor = None
     if more and page:
         last = page[-1]
-        stamp = iso(last["capturedAt"]) or ""
-        next_cursor = f"{stamp.replace('Z', '').replace('+00:00', '')}|{last['id']}"
-    return {"items": items, "nextCursor": next_cursor, "filters": f.echo()}
+        next_cursor = recording_cursor(order, iso(last["orderedAt"]) or "", str(last["id"]))
+    return {"items": items, "nextCursor": next_cursor, "sort": order, "filters": f.echo()}
 
 
 async def media_ids_matching(f: Filters, *, client: Any = None, limit: int = 5000, viewer: Any = NO_TRANSCRIPTS) -> list[str]:

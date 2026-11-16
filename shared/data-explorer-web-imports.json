@@ -29,6 +29,7 @@
     "@/lib/api",
     "@/lib/naming",
     "@/lib/permissions",
+    "@/lib/toolArtisans",
     "@/lib/transcript/api",
     "@/lib/transcript/clipboard",
     "@/lib/transcript/contract",

@@ -21,6 +21,7 @@ from app.services.data_explorer import filters as explorer_filters
 from app.services.pagination import normalize_pagination
 from app.services.record_filters import RECORD_TYPES, build_record_wheres, resolve_types
 from app.services.records import media_url_owners, plain, public_encode
+from app.services.tool_scope import head_first_links
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -94,7 +95,7 @@ async def global_search(
         planned.append((
             "tools_rows",
             db.tooldocumentation.find_many(
-                where=tool_where, include={"media": True}, skip=skip, take=page_size, order=_ORDER
+                where=tool_where, include={"media": True, "artisan": True, "artisanLinks": {"include": {"artisan": True}}}, skip=skip, take=page_size, order=_ORDER
             ),
         ))
     if "media" in selected:
@@ -111,6 +112,7 @@ async def global_search(
     workshops = results.get("workshops_rows", [])
     products = results.get("products_rows", [])
     tools = results.get("tools_rows", [])
+    head_first_links(tools)
     media = results.get("media_rows", [])
 
     return public_encode(

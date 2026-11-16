@@ -22,6 +22,7 @@ from app.services import craft_master
 from app.services.access import guard_record_edit, record_edit_privilege, with_edit_access
 from app.services.concurrency import gather_reads
 from app.services.standard_values import StandardValueError, apply_tool_values, retired_tradition_codes
+from app.services.tool_scope import head_first_links, tool_artisans_head_first
 from app.services.workshop_access import (
     enforce_workshop_submission,
     pin_pending_if_late,
@@ -277,15 +278,7 @@ def _order_craft_links(tool: dict[str, Any]) -> None:
 
 
 def _order_artisan_links(tool: dict[str, Any]) -> None:
-    first = tool.get("artisanId")
-    links = tool.get("artisanLinks") or []
-    links.sort(
-        key=lambda link: (
-            0 if first is not None and link.get("artisanId") == first else 1,
-            link.get("createdAt") or "",
-            link.get("id") or "",
-        )
-    )
+    head_first_links([tool])
 
 
 def _tool_payload(tool: Any) -> dict[str, Any]:
@@ -304,12 +297,11 @@ def _tool_page(tools: Any) -> list[dict[str, Any]]:
 
 
 async def _assigned_artisans(tool_id: str) -> list[dict[str, Any]]:
-    links = await db.toolartisan.find_many(
-        where={"toolId": tool_id},
-        include={"artisan": True},
-        order=[{"createdAt": "asc"}, {"id": "asc"}],
-    )
-    return public_encode([link.artisan for link in links if link.artisan])
+    found = await tool_artisans_head_first(tool_id)
+    encoded = public_encode([artisan for artisan, _head in found])
+    for row, (_artisan, head) in zip(encoded, found, strict=True):
+        row["isHead"] = head
+    return encoded
 
 
 @router.get("")
@@ -342,6 +334,7 @@ async def list_tools(
             {"englishName": contains(search)},
             {"craftName": contains(search)},
             {"artisanName": contains(search)},
+            {"artisanLinks": {"some": {"artisan": {"is": {"name": contains(search)}}}}},
             {"place": contains(search)},
             {"processUsedIn": contains(search)},
             {"material": contains(search)},

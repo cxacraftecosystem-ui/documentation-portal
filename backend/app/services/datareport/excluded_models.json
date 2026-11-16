@@ -5,6 +5,7 @@
  "AccessRoster": "Sign-in admission roster (who may sign in), managed by administrators.",
  "AnnualPlanEntry": "Programme planning (Annual plan page); a design workshop's own details are exported.",
  "AppClientVersion": "Which app version each account last used: device telemetry.",
+ "DeviceOutboxReport": "How many recordings each phone or browser still holds: device telemetry for admins.",
  "AppRelease": "Android release catalogue, not collected data.",
  "AppSetting": "Platform settings (transcription switches, budgets), not collected data.",
  "ArtisanDuplicateCandidate": "Duplicate-detection work queue for administrators.",

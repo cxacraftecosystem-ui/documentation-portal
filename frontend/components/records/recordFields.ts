@@ -2,6 +2,7 @@ import { formatDate } from "@/lib/format";
 import type { RecordViewType } from "@/lib/recordView";
 import { workshopDisplayTitle, type WorkshopTitleFields } from "@/lib/workshopTitle";
 import { languageName, phoneOf, traditionLabel } from "@/lib/standardValues";
+import { toolArtisanNames } from "@/lib/toolArtisans";
 
 export type RecordFieldRow = { label: string; value: string };
 
@@ -103,7 +104,7 @@ export function recordFieldRows(type: RecordViewType, record: Loose): RecordFiel
         { label: "Local name", value: text(record.localName) },
         { label: "English name", value: text(record.englishName) },
         { label: "Craft", value: text(record.craftName) },
-        { label: "Artisan", value: text(record.artisanName) },
+        { label: "Artisan", value: text(toolArtisanNames(record as unknown as Parameters<typeof toolArtisanNames>[0])) },
         { label: "Place", value: text(record.place) },
         { label: "Material", value: text(record.material) },
         { label: "Maker", value: text(record.maker) },

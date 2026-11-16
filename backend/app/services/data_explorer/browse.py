@@ -117,7 +117,7 @@ def where_for(kind: Kind, scope: Any, q: str | None, workshop_ids: list[str] | N
     search = (
         {
             "AND": [
-                {"OR": [{field: {"contains": w, "mode": "insensitive"}} for field in kind.search]}
+                {"OR": [{field: {"contains": w, "mode": "insensitive"}} for field in kind.search] + _linked_names(kind, w)}
                 for w in words
             ]
         }
@@ -125,6 +125,12 @@ def where_for(kind: Kind, scope: Any, q: str | None, workshop_ids: list[str] | N
         else None
     )
     return _and(scoped, live, search, workshop_where(kind, workshop_ids))
+
+
+def _linked_names(kind: Kind, word: str) -> list[dict[str, Any]]:
+    if kind.delegate != "tooldocumentation":
+        return []
+    return [{"artisanLinks": {"some": {"artisan": {"is": {"name": {"contains": word, "mode": "insensitive"}}}}}}]
 
 
 def workshop_where(kind: Kind, workshop_ids: list[str] | None) -> dict[str, Any] | None:
@@ -166,7 +172,9 @@ def label(kind_key: str, row: Any) -> str:
     if kind_key == "product":
         return _join(row.productName, getattr(row, "artisanName", None)) or "Product"
     if kind_key == "tool":
-        return _join(row.toolkitName, getattr(row, "artisanName", None)) or "Tool"
+        from app.services.tool_scope import tool_artisan_names
+
+        return _join(row.toolkitName, tool_artisan_names(row)) or "Tool"
     if kind_key == "workshop":
         return _join(row.title) or "Workshop"
     if kind_key == "craft":
@@ -196,7 +204,9 @@ async def page(
     kind = KINDS[kind_key]
     where = _and(where_for(kind, scope, q, workshop_ids), browse_where(kind_key, flt))
     is_media = kind.delegate == "mediafile"
-    include = {"uploadedBy": True} if is_media else {"createdBy": True}
+    include: dict[str, Any] = {"uploadedBy": True} if is_media else {"createdBy": True}
+    if kind.delegate == "tooldocumentation":
+        include = {**include, "artisan": True, "artisanLinks": {"include": {"artisan": True}}}
     kwargs: dict[str, Any] = {
         "take": page_size,
         "skip": (page_number - 1) * page_size,
