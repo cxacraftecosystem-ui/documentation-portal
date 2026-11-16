@@ -137,7 +137,7 @@ fun RecordingRow(
 @Composable
 fun RecordingSortChoice(sort: String, modifier: Modifier = Modifier, onSort: (String) -> Unit) {
     SegmentedChoice(
-        label = QuestionnaireCopy.t("sortBy"),
+        label = QuestionnaireCopy.t("sortRecordingsBy"),
         options = listOf(
             SelectOption(RecordingSort.ADDED, QuestionnaireCopy.t("sortAdded")),
             SelectOption(RecordingSort.RECORDED, QuestionnaireCopy.t("sortRecorded"))

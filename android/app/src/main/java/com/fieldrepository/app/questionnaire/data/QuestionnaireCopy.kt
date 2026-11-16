@@ -376,18 +376,24 @@ object QuestionnaireCopy {
         "more" to "More",
         "fillFromProfile" to "Fill from profile",
         "editSession" to "Edit details",
-        "leaveFailedAndroid" to "{count} takes didn't upload. They wait here for Retry.",
-        "uploadedToTarget" to "{count} recordings uploaded to {target}",
-        "uploadedToWhole" to "{count} recordings uploaded to the whole session",
-        "alreadyInThisList" to "Already in this list",
-        "uploadingFromThisPhone" to "Uploading from this phone",
-        "inThisSession" to "In this session",
-        "inOtherSession" to "In {title}",
-        "open" to "Open",
-        "sortBy" to "Sort by",
+        "wholeSessionActions" to "Whole session actions",
+        "takeCountOne" to "1 take",
+        "takeCount" to "{count} takes",
+        "uploadedOne" to "1 recording uploaded to {target}",
+        "uploadedMany" to "{count} recordings uploaded to {target}",
+        "wholeSessionTarget" to "the whole session",
+        "duplicateInList" to "Already in this list",
+        "duplicateQueued" to "Uploading from this device",
+        "duplicateHere" to "In this session",
+        "duplicateIn" to "In {title}",
+        "duplicateElsewhere" to "In another session",
+        "openDuplicate" to "Open",
+        "openDuplicateNamed" to "Open {name}",
+        "sortRecordingsBy" to "Sort by",
         "sortAdded" to "Added",
         "sortRecorded" to "Recorded",
-        "takesCount" to "{count} takes"
+        "duplicateQueuedAndroid" to "Uploading from this phone",
+        "leaveFailedAndroid" to "{count} takes didn't upload. They wait here for Retry."
     )
 
     val sharedKeyOf: Map<String, String> = linkedMapOf(
@@ -774,7 +780,7 @@ object QuestionnaireCopy {
     fun leaveBody(pending: Int, failed: Int): String =
         listOfNotNull(if (pending > 0) leaveBody(pending) else null, if (failed > 0) t("leaveFailedAndroid", "count" to failed) else null).joinToString("\n")
     fun uploadedTo(count: Int, target: String?): String =
-        if (target == null) t("uploadedToWhole", "count" to count) else t("uploadedToTarget", "count" to count, "target" to target)
+        t("uploadedMany", "count" to count, "target" to (target ?: t("wholeSessionTarget")))
 
     fun finishBody(sections: Int, artisans: Int, uploading: Int): String {
         val full = t("finishBody", "sections" to sections, "artisans" to artisans, "pending" to uploading)

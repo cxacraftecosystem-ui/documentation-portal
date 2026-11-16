@@ -53,7 +53,7 @@ fun WholeSessionBlock(
                 style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface
             )
             if (takes.isNotEmpty()) Text(
-                QuestionnaireCopy.t("takesCount", "count" to takes.size), style = MaterialTheme.typography.bodyMedium,
+                QuestionnaireCopy.t("takeCount", "count" to takes.size), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.field.muted
             )
         }

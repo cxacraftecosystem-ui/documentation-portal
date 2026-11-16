@@ -139,15 +139,15 @@ object UploadPlan {
     fun duplicateLine(on: LocalDate): String = QuestionnaireCopy.t("alreadyUploadedOn", "date" to QuestionnaireCopy.day(on))
 
     fun duplicateLine(duplicate: UploadDuplicate): String = when (duplicate) {
-        UploadDuplicate.InThisList -> QuestionnaireCopy.t("alreadyInThisList")
-        UploadDuplicate.OnThisPhone -> QuestionnaireCopy.t("uploadingFromThisPhone")
+        UploadDuplicate.InThisList -> QuestionnaireCopy.t("duplicateInList")
+        UploadDuplicate.OnThisPhone -> QuestionnaireCopy.t("duplicateQueuedAndroid")
         is UploadDuplicate.OnServer -> duplicateLine(duplicate.on)
     }
 
     fun whereLine(duplicate: UploadDuplicate): String? = when {
         duplicate !is UploadDuplicate.OnServer -> null
-        duplicate.sameSession -> QuestionnaireCopy.t("inThisSession")
-        else -> duplicate.sessionTitle?.trim()?.ifBlank { null }?.let { QuestionnaireCopy.t("inOtherSession", "title" to it) }
+        duplicate.sameSession -> QuestionnaireCopy.t("duplicateHere")
+        else -> duplicate.sessionTitle?.trim()?.ifBlank { null }?.let { QuestionnaireCopy.t("duplicateIn", "title" to it) } ?: QuestionnaireCopy.t("duplicateElsewhere")
     }
 
     fun duplicate(
@@ -353,7 +353,7 @@ private fun UploadFileRow(row: UploadRow, sessionDate: LocalDate?, onOpen: () ->
                     where?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.onWarningContainer, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                 }
                 if (openable) TextButton(onClick = onOpen, modifier = Modifier.heightIn(min = 48.dp).testTag("questionnaire.upload.duplicate.open")) {
-                    Text(QuestionnaireCopy.t("open"), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+                    Text(QuestionnaireCopy.t("openDuplicate"), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 }
             }
         }

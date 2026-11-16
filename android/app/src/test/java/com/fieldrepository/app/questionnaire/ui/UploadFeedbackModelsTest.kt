@@ -159,7 +159,7 @@ class UploadFeedbackModelsTest {
         assertEquals("Already uploaded on 13 Nov", UploadPlan.duplicateLine(here))
         assertEquals("In this session", UploadPlan.whereLine(here))
         assertEquals("In Sandesh P · Bagru", UploadPlan.whereLine(there))
-        assertNull(UploadPlan.whereLine(there.copy(sessionTitle = null)))
+        assertEquals("In another session", UploadPlan.whereLine(there.copy(sessionTitle = null)))
         assertNull(UploadPlan.whereLine(UploadDuplicate.OnThisPhone))
         assertFalse(UploadDuplicate.OnServer(today, sessionId = null, sameSession = false).openable)
         assertTrue(UploadRow(listed[0].file, UploadDuplicate.InThisList).skipped)
