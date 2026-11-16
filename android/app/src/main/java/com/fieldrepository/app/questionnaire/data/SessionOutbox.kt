@@ -4,6 +4,10 @@ import com.fieldrepository.app.data.AadhaarAtRest
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
@@ -166,6 +170,19 @@ class FileSessionUnitStore(private val dir: File) : SessionUnitStore {
     }
 }
 
+private class RevisedStore(private val inner: SessionUnitStore, private val bump: () -> Unit) : SessionUnitStore {
+    override suspend fun all() = inner.all()
+    override suspend fun read(clientKey: String) = inner.read(clientKey)
+    override suspend fun write(unit: SessionUnit) {
+        inner.write(unit)
+        bump()
+    }
+    override suspend fun delete(clientKey: String) {
+        inner.delete(clientKey)
+        bump()
+    }
+}
+
 class InMemorySessionUnitStore : SessionUnitStore {
     private val units = LinkedHashMap<String, SessionUnit>()
     private val mutex = Mutex()
@@ -207,7 +224,7 @@ class UploadMissing(message: String) : IOException(message) {
 class MissingSessionUnit(clientKey: String) : IllegalStateException("No queued session $clientKey")
 
 class SessionOutbox(
-    private val store: SessionUnitStore,
+    backing: SessionUnitStore,
     private val clock: () -> Instant = Instant::now,
     private val multipartThresholdBytes: Long = 5L * 1024 * 1024,
     private val defaultPartSize: Long = 8L * 1024 * 1024,
@@ -253,6 +270,10 @@ class SessionOutbox(
 
         fun answerKey(artisanId: String, questionLineageId: String) = "$artisanId|$questionLineageId"
     }
+
+    private val changes = MutableStateFlow(0L)
+    val revision: StateFlow<Long> = changes.asStateFlow()
+    private val store: SessionUnitStore = RevisedStore(backing) { changes.update { it + 1 } }
 
     private val passLock = Mutex()
     private val unitLocks = HashMap<String, Mutex>()
@@ -448,6 +469,10 @@ class SessionOutbox(
     }
 
     suspend fun units(): List<SessionUnit> = store.all()
+
+    suspend fun waiting(ownerUserId: String?): Int = store.all()
+        .filterNot { it.ownerUserId != null && ownerUserId != null && it.ownerUserId != ownerUserId }
+        .sumOf { unit -> unit.steps.count { it.state == StepState.PENDING } }
     suspend fun unit(clientKey: String): SessionUnit? = store.read(clientKey)
 
     suspend fun retryStep(clientKey: String, stepId: String) = mutate(clientKey) { unit ->

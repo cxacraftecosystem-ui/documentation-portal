@@ -123,7 +123,7 @@ class SessionScreenModelsTest {
         assertEquals(AttachKind.WHOLE, UploadPlan.defaultKind(null, null))
         val fresh = PickedFile("/a/Meera_part1.m4a", "sha1", 10, "audio/mp4", "m4a", Instant.parse("2026-11-14T10:42:00Z"), 2_530_000)
         val dup = PickedFile("/a/Meera_part2.m4a", "sha2", 10, "audio/mp4", "m4a", null, 1_083_000)
-        val rows = listOf(UploadRow(fresh), UploadRow(dup, LocalDate.parse("2026-11-14")))
+        val rows = listOf(UploadRow(fresh), UploadRow(dup, UploadDuplicate.OnServer(LocalDate.parse("2026-11-14"))))
         assertEquals(listOf(fresh), UploadPlan.uploading(rows))
         assertEquals("Upload 1 file", UploadPlan.button(1))
         assertEquals("Upload 3 files", UploadPlan.button(3))

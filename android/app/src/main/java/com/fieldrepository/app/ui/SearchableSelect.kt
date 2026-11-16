@@ -44,6 +44,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -312,6 +313,8 @@ private fun SelectedTick() {
     )
 }
 
+val LocalInputInert = compositionLocalOf { false }
+
 @Composable
 private fun SelectTrigger(
     speech: String,
@@ -320,8 +323,9 @@ private fun SelectTrigger(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
+    val inert = LocalInputInert.current
     OutlinedButton(
-        onClick = onClick,
+        onClick = { if (!inert) onClick() },
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()

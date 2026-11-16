@@ -65,7 +65,7 @@
     <string name="q_upload_on_wifi_only">Upload on Wi-Fi only</string>
     <string name="q_leave_title">Leave this session?</string>
     <string name="q_leave_body_web">%1$s takes haven\'t uploaded. They stay on this device and upload when you return.</string>
-    <string name="q_leave_body_android">%1$s takes will keep uploading in the background.</string>
+    <string name="q_leave_body_android">Uploading %1$s takes. They carry on in the background after you leave, and wait for signal if there is none.</string>
     <string name="q_stay">Stay</string>
     <string name="q_leave">Leave</string>
     <string name="q_already_recorded_title">Already recorded</string>
@@ -487,4 +487,16 @@
     <string name="q_open_full_view">Open full view</string>
     <string name="q_collapse_take">Collapse take</string>
     <string name="q_transcript_after_upload">Transcript after upload</string>
+    <string name="q_leave_failed_android">%1$s takes didn\'t upload. They wait here for Retry.</string>
+    <string name="q_uploaded_to_target">%1$s recordings uploaded to %2$s</string>
+    <string name="q_uploaded_to_whole">%1$s recordings uploaded to the whole session</string>
+    <string name="q_already_in_this_list">Already in this list</string>
+    <string name="q_uploading_from_this_phone">Uploading from this phone</string>
+    <string name="q_in_this_session">In this session</string>
+    <string name="q_in_other_session">In %1$s</string>
+    <string name="q_open">Open</string>
+    <string name="q_sort_by">Sort by</string>
+    <string name="q_sort_added">Added</string>
+    <string name="q_sort_recorded">Recorded</string>
+    <string name="q_takes_count">%1$s takes</string>
 </resources>

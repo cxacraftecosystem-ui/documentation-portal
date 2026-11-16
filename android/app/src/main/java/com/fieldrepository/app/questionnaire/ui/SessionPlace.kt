@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.core.content.ContextCompat
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
+import com.fieldrepository.app.ui.LocalInputInert
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -55,9 +56,10 @@ fun PlaceFromDevice(onPlace: (String) -> Unit, onError: (String) -> Unit) {
     val ask = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
         if (granted.values.any { it }) fetch() else onError(QuestionnaireCopy.s("place.permission"))
     }
+    val inert = LocalInputInert.current
     IconButton(
         enabled = !busy,
-        onClick = { if (holdsPlacePermission(context)) fetch() else ask.launch(PLACE_PERMISSIONS) },
+        onClick = { if (!inert) { if (holdsPlacePermission(context)) fetch() else ask.launch(PLACE_PERMISSIONS) } },
         modifier = Modifier.testTag("q-place-here")
     ) {
         Icon(Icons.Outlined.MyLocation, contentDescription = QuestionnaireCopy.s("place.useLocation"))

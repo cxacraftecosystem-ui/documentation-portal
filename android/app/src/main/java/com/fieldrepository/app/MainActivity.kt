@@ -2321,7 +2321,8 @@ private fun HomeScreen(
                             artisans = artisans,
                             user = user,
                             onError = { showMessage(it) },
-                            modifier = Modifier.fillMaxWidth().fillMaxHeight()
+                            modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+                            onNotice = { showMessage(it, AppMessageTone.SUCCESS) }
                         )
                     }
                 } else QuestionnaireForm(

@@ -88,6 +88,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fieldrepository.app.data.ConnectivityObserver
 import com.fieldrepository.app.data.Naming
 import com.fieldrepository.app.questionnaire.data.ClientClock
 import com.fieldrepository.app.questionnaire.data.CoverageCache
@@ -152,7 +153,13 @@ import java.io.File
 import java.time.Instant
 import java.time.LocalDate
 
-private data class RecordRequest(val target: QTargetRef?, val label: String, val code: String, val pickedFiles: List<PickedFile> = emptyList()) {
+private data class RecordRequest(
+    val target: QTargetRef?,
+    val label: String,
+    val code: String,
+    val pickedFiles: List<PickedFile> = emptyList(),
+    val clipKeys: List<String> = emptyList()
+) {
     val upload: Boolean get() = pickedFiles.isNotEmpty()
     fun discardFiles() = pickedFiles.forEach { File(it.path).delete() }
 }
@@ -178,8 +185,11 @@ fun SessionWorkspace(
     onBack: () -> Unit,
     onOpenSession: (QSession) -> Unit = {},
     onOpenReadView: (sessionId: String) -> Unit = {},
+    onOpenSessionId: (sessionId: String) -> Unit = {},
+    onNotice: ((String) -> Unit)? = null,
     onError: (String) -> Unit
 ) {
+    val notice: (String) -> Unit = onNotice ?: onError
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val mayDelete = LocalMayDelete.current
@@ -230,6 +240,12 @@ fun SessionWorkspace(
     var uploadAttach by remember { mutableStateOf(AttachKind.WHOLE) }
     var uploadQuestion by remember { mutableStateOf<String?>(null) }
     var pendingMic by remember { mutableStateOf<UploadOpen?>(null) }
+    val arriving = remember { mutableStateListOf<LocalClip>() }
+    val tracked = remember { mutableStateListOf<String>() }
+    var batches by remember { mutableStateOf<List<UploadBatch>>(emptyList()) }
+    var revealKey by remember { mutableStateOf<String?>(null) }
+    val revealed = remember { mutableStateListOf<String>() }
+    val revision by v2.outbox.revision.collectAsState()
     val removed = remember { mutableStateListOf<QRecording>() }
     val lastAnswered = remember { mutableStateMapOf<String, Set<String>>() }
     val recorderState by RecordingService.state.collectAsState()
@@ -288,6 +304,20 @@ fun SessionWorkspace(
             reload()
             delay((v2.config.value?.snapshotPollSeconds ?: 60) * 1000L)
         }
+    }
+    LaunchedEffect(clientKey, revision) {
+        val before = unit
+        val fresh = v2.outbox.unit(clientKey) ?: return@LaunchedEffect
+        unit = fresh
+        if (UploadBatches.landed(before, fresh).isEmpty()) return@LaunchedEffect
+        val sessionId = fresh.sessionId ?: detail?.id ?: return@LaunchedEffect
+        runCatching { v2.api.session(sessionId) }.onSuccess { detail = it }
+        overlay = CoverageCache.overlayFrom(v2.outbox.units(), fresh.questionnaireId)
+    }
+    LaunchedEffect(revealKey) {
+        if (revealKey == null) return@LaunchedEffect
+        delay(3_000)
+        revealKey = null
     }
     LaunchedEffect(recorderState) {
         val state = recorderState
@@ -373,16 +403,25 @@ fun SessionWorkspace(
         frozen?.let { f -> JoinQr.encode(JoinQrPayload(clientKey = u.clientKey, questionnaireId = u.questionnaireId, workshopId = u.workshopId, sessionDate = f.sessionDate, participants = QSubjects.artisans(participantIds))) }
     }
     val pendingCount = unit?.uploadingClips?.size ?: 0
+    val leaveCounts = LeaveCounts.of(unit, (recorderState as? RecordingService.State.Recording)?.draft?.sessionKey == clientKey)
     val trayRows = unit?.let { u -> OutboxTrayModel.rows(u, participantName) { lineage -> instrument?.question(lineage)?.displayCode ?: lineage } }.orEmpty()
     val serverSessionId = unit?.sessionId ?: detail?.id
     val pill = SavePillModel.of(unit)
     val recording = (recorderState as? RecordingService.State.Recording)?.takeIf { it.draft.sessionKey == clientKey }
     val liveRecordings = detail?.recordings.orEmpty()
-    val localClips = remember(overlay, unit, sessionKeys) {
-        overlay.filter { it.sessionKey in sessionKeys }.map { o ->
-            val clip = unit?.steps?.firstOrNull { it.clip?.clientClipKey == o.clientClipKey }?.clip
-            LocalClip(o, if (o.uploading) OutboxTrayModel.uploadLine(clip?.uploadedPercent ?: 0) else QuestionnaireCopy.s("upload.onDevice"), clip?.localPath?.takeIf { File(it).isFile }, clip?.contentType)
-        }
+    val online = remember(unit, revision) { ConnectivityObserver.isOnline(context) }
+    val trackedKeys = tracked.toSet()
+    val arrivingNow = arriving.toList()
+    val localClips = remember(unit, trackedKeys, arrivingNow, online) {
+        LocalTakes.merge(LocalTakes.of(unit, trackedKeys, online), arrivingNow)
+    }
+    LaunchedEffect(unit, liveRecordings) {
+        val queued = unit?.steps.orEmpty().mapNotNull { it.clip?.clientClipKey }.toSet() + liveRecordings.mapNotNull { it.clientClipKey }
+        arriving.removeAll { it.take.clientClipKey in queued }
+        val (finished, waiting) = UploadBatches.split(batches, unit, liveRecordings)
+        if (finished.isEmpty() && waiting.size == batches.size) return@LaunchedEffect
+        batches = waiting
+        finished.forEach { notice(it.notice) }
     }
     val openMedia = InPlaceTakes.openMedia(openTake, liveRecordings, localClips)
     OpenTakeGuard(openTake, openMedia, hidden = reviewing) { openTake = null }
@@ -398,14 +437,20 @@ fun SessionWorkspace(
         }
     }
 
+    fun withdraw(req: RecordRequest) {
+        if (req.clipKeys.isEmpty()) return
+        arriving.removeAll { it.take.clientClipKey in req.clipKeys }
+        batches = batches.filterNot { b -> b.keys.any { it in req.clipKeys } }
+    }
+
     fun startRecording(req: RecordRequest, reasons: Map<String, String>, acked: List<String>, continuationOf: String? = null, replaces: String? = null) {
         val u = unit ?: return
         val subjects = roster.map { QCompleteSubject(it.artisanId, SubjectRole.ANSWERED.wire, named = false, repeatReason = reasons[it.artisanId]) }
         if (req.upload) {
             val sessionNoon = sessionDay?.atTime(12, 0)?.atZone(Naming.IST)?.toInstant()
-            val drafts = req.pickedFiles.map { picked ->
+            val drafts = req.pickedFiles.mapIndexed { i, picked ->
                 RecordingDraft(
-                    clientClipKey = SessionOutbox.newKey(), sessionKey = u.clientKey, questionnaireId = u.questionnaireId, adtsPath = picked.path,
+                    clientClipKey = req.clipKeys.getOrNull(i) ?: SessionOutbox.newKey(), sessionKey = u.clientKey, questionnaireId = u.questionnaireId, adtsPath = picked.path,
                     deviceCapturedAt = (picked.recordedAt ?: sessionNoon ?: Instant.now()).toString(),
                     clockOffsetMs = 0, capturedAtSource = if (picked.recordedAt != null) "FILE_METADATA" else "SESSION_DATE",
                     targets = listOfNotNull(req.target), subjects = subjects, label = req.label,
@@ -426,6 +471,7 @@ fun SessionWorkspace(
         pendingMic = UploadOpen(req.target?.sectionId ?: req.target?.questionLineageId?.let { instrument?.sectionOfQuestion?.get(it) }, req.target?.questionLineageId)
         micGate.run(MICROPHONE_PERMISSION, MICROPHONE_REFUSED_SENTENCE) {
             val key = SessionOutbox.newKey()
+            tracked += key
             val draft = RecordingDraft(
                 clientClipKey = key, sessionKey = u.clientKey, questionnaireId = u.questionnaireId,
                 adtsPath = File(RecordingDrafts.dir(v2.filesDir), "$key.aac").absolutePath,
@@ -443,7 +489,7 @@ fun SessionWorkspace(
     fun requestRecord(req: RecordRequest) {
         val running = RecordingService.state.value
         if (running is RecordingService.State.Recording && !req.upload) { p3 = req; return }
-        val u = unit ?: return
+        val u = unit ?: run { withdraw(req); req.discardFiles(); if (req.upload) onError(QuestionnaireCopy.s("error.saveOnPhone")); return }
         val ids = QSubjects.artisans(roster.map { it.artisanId })
         if (req.target == null || ids.isEmpty()) { startRecording(req, emptyMap(), emptyList()); return }
         scope.launch {
@@ -480,6 +526,7 @@ fun SessionWorkspace(
 
     fun sectionRequest(section: InstrumentSection) = RecordRequest(QTargetRef(sectionId = section.id), "Section ${section.code}", section.code)
     fun questionRequest(q: InstrumentQuestion) = RecordRequest(QTargetRef(questionLineageId = q.lineageId), q.displayCode, q.displayCode)
+    fun wholeRequest() = RecordRequest(null, QuestionnaireCopy.s("record.wholeSession"), "")
 
     fun openUpload(sectionId: String?, lineageId: String?) {
         uploadRows.forEach { File(it.file.path).delete() }
@@ -495,18 +542,57 @@ fun SessionWorkspace(
         uploadOpen = null
     }
 
-    suspend fun duplicateOn(picked: PickedFile): LocalDate? {
+    suspend fun duplicateOf(picked: PickedFile): UploadDuplicate? {
         val units = v2.outbox.units()
-        units.firstOrNull { un -> un.steps.any { it.clip?.contentSha256 == picked.sha256 } }?.let { owner ->
-            val body = owner.steps.firstOrNull { it.kind == StepKind.SESSION }?.bodyJson?.let { runCatching { outboxJson.decodeFromString(QSessionCreate.serializer(), it) }.getOrNull() }
-            return body?.sessionDate?.let { runCatching { LocalDate.parse(it.take(10)) }.getOrNull() } ?: LocalDate.now(Naming.IST)
-        }
-        if (uploadRows.any { it.file.sha256 == picked.sha256 }) return LocalDate.now(Naming.IST)
+        val today = LocalDate.now(Naming.IST)
+        val sessionId = unit?.sessionId ?: detail?.id
+        val listed = uploadRows.toList()
+        UploadPlan.duplicate(picked.sha256, listed, units, clientKey, sessionId, null, lookupFailed = false, today = today)?.let { return it }
         val response = withTimeoutOrNull(6_000) {
-            runCatching { v2.api.shaLookup(QShaLookupRequest(listOf(picked.sha256), unit?.sessionId)) }.getOrNull()
-        } ?: return null
-        val match = response.items.firstOrNull { it.sha == picked.sha256 && !it.pending } ?: return null
-        return UploadPlan.uploadedDay(match.uploadedAt) ?: LocalDate.now(Naming.IST)
+            runCatching { v2.api.shaLookup(QShaLookupRequest(listOf(picked.sha256), sessionId)) }.getOrNull()
+        }
+        val match = response?.items?.firstOrNull { it.sha == picked.sha256 }
+        val found = UploadPlan.duplicate(picked.sha256, uploadRows.toList(), units, clientKey, sessionId, match, lookupFailed = response == null, today = today)
+        if (found !is UploadDuplicate.OnServer || found.sameSession || found.sessionTitle != null) return found
+        val other = found.sessionId ?: return found
+        val title = withTimeoutOrNull(4_000) { runCatching { v2.api.sessionSummary(other).title }.getOrNull() }
+        return found.copy(sessionTitle = title?.trim()?.ifBlank { null })
+    }
+
+    fun announce(req: RecordRequest) {
+        if (!req.upload || req.clipKeys.isEmpty()) return
+        val scope = UploadBatches.scopeOf(req.target)
+        val keys = req.clipKeys
+        val noon = sessionDay?.atTime(12, 0)?.atZone(Naming.IST)?.toInstant() ?: Instant.now()
+        arriving.removeAll { it.take.clientClipKey in keys }
+        arriving += LocalTakes.arriving(keys.zip(req.pickedFiles), scope, online, noon)
+        keys.filterNot { it in tracked }.forEach { tracked += it }
+        batches = batches.filterNot { b -> b.keys.any { it in keys } } + UploadBatch(keys, req.target?.let { req.label })
+        val sectionId = req.target?.sectionId ?: req.target?.questionLineageId?.let { instrument?.sectionOfQuestion?.get(it) }
+        if (sectionId != null && openSection != sectionId) openSection = sectionId
+        if (req.target?.questionLineageId != null && scope !in revealed) revealed += scope
+        revealKey = InPlaceTakes.localKey(keys.first())
+    }
+
+    fun retryClip(stepId: String) = withUnit { key -> v2.outbox.retryStep(key, stepId) }
+
+    fun openDuplicate(duplicate: UploadDuplicate.OnServer) {
+        closeUpload(keepFiles = false)
+        if (!duplicate.sameSession) {
+            duplicate.sessionId?.let(onOpenSessionId)
+            return
+        }
+        val rec = liveRecordings.firstOrNull { it.id == duplicate.recordingId && it.removedAt == null } ?: return
+        val scope = InPlaceTakes.scopeOf(rec)
+        val sectionId = when {
+            scope.startsWith("S:") -> scope.removePrefix("S:")
+            scope.startsWith("Q:") -> instrument?.sectionOfQuestion?.get(scope.removePrefix("Q:"))
+            else -> null
+        }
+        if (sectionId != null) openSection = sectionId
+        if (scope.startsWith("Q:") && scope !in revealed) revealed += scope
+        openTake = "$scope|${rec.id}"
+        revealKey = rec.id
     }
 
     val pickLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -517,7 +603,7 @@ fun SessionWorkspace(
                 val picked = withContext(Dispatchers.IO) { runCatching { copyPicked(context, uri, File(RecordingDrafts.dir(v2.filesDir), SessionOutbox.newKey())) }.getOrNull() }
                 if (picked == null) onError(QuestionnaireCopy.s("error.readFile"))
                 else if (uploadOpen == null) File(picked.path).delete()
-                else uploadRows += UploadRow(picked, duplicateOn(picked))
+                else uploadRows += UploadRow(picked, duplicateOf(picked))
                 uploadChecking -= 1
             }
         }
@@ -530,11 +616,13 @@ fun SessionWorkspace(
         val req = when (uploadAttach) {
             AttachKind.SECTION -> instrument?.section(open?.sectionId ?: "")?.let(::sectionRequest)
             AttachKind.QUESTION -> uploadQuestion?.let { instrument?.question(it) }?.let(::questionRequest)
-            AttachKind.WHOLE -> RecordRequest(null, QuestionnaireCopy.s("record.wholeSession"), "")
+            AttachKind.WHOLE -> wholeRequest()
         } ?: return
         uploadRows.filter { it.skipped }.forEach { File(it.file.path).delete() }
         closeUpload(keepFiles = true)
-        requestRecord(req.copy(pickedFiles = files))
+        val queued = req.copy(pickedFiles = files, clipKeys = files.map { SessionOutbox.newKey() })
+        announce(queued)
+        requestRecord(queued)
     }
 
     fun setRecordBy(value: String) {
@@ -544,7 +632,7 @@ fun SessionWorkspace(
     }
 
     fun leave() {
-        if (pendingCount > 0 || recording != null) leaving = true else onBack()
+        if (leaveCounts.asks) leaving = true else onBack()
     }
 
     BackHandler {
@@ -611,6 +699,7 @@ fun SessionWorkspace(
             }
         }
     ) { inner ->
+        val clearance = RevealClearance(top = inner.calculateTopPadding() + 8.dp, bottom = inner.calculateBottomPadding() + 8.dp)
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().testTag("questionnaire.workspace"),
@@ -657,7 +746,8 @@ fun SessionWorkspace(
                         TakesList(
                             heading = QuestionnaireCopy.t("takesHeading"), takes = sectionTakes, scope = sectionScope, open = openTake,
                             name = "Section ${section.code}", onOpen = { openTake = it },
-                            onManage = { takeSheet = section.id to null; takeQuestion = null }
+                            onManage = { takeSheet = section.id to null; takeQuestion = null },
+                            onRetry = ::retryClip, reveal = revealKey, clearance = clearance
                         )
                         section.questions.forEach { q ->
                             val qStatus = evidence.question(q)
@@ -698,9 +788,10 @@ fun SessionWorkspace(
                                 },
                                 playOpen = InPlaceTakes.openIn(openTake, if (qStatus.state == QuestionState.IN_SECTION_TAKE) sectionScope else questionScope),
                                 inPlace = {
-                                    if (InPlaceTakes.openIn(openTake, questionScope)) TakesList(
+                                    if (InPlaceTakes.openIn(openTake, questionScope) || questionScope in revealed || questionTakes.any { it.local }) TakesList(
                                         heading = null, takes = questionTakes, scope = questionScope, open = openTake,
-                                        name = q.displayCode, onOpen = { openTake = it }
+                                        name = q.displayCode, onOpen = { openTake = it },
+                                        onRetry = ::retryClip, reveal = revealKey, clearance = clearance
                                     )
                                 }
                             ) {
@@ -718,11 +809,16 @@ fun SessionWorkspace(
                     }
                 }
             }
-            if (!locked && instrument != null) item("whole") {
-                Box(Modifier.fillMaxWidth().padding(top = 12.dp), contentAlignment = Alignment.Center) {
-                    TextButton(onClick = { requestRecord(RecordRequest(null, QuestionnaireCopy.s("record.wholeSession"), "")) }, modifier = Modifier.heightIn(min = 48.dp)) {
-                        Text(QuestionnaireCopy.s("workspace.record") + " · " + QuestionnaireCopy.s("record.wholeSession"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                    }
+            if (instrument != null) {
+                val wholeTakes = InPlaceTakes.whole(liveRecordings, localClips)
+                if (!locked || wholeTakes.isNotEmpty()) item("whole") {
+                    WholeSessionBlock(
+                        takes = wholeTakes, open = openTake, showPair = !locked && recording == null,
+                        onOpen = { openTake = it },
+                        onRecord = { requestRecord(wholeRequest()) },
+                        onUpload = { openUpload(null, null) },
+                        onRetry = ::retryClip, reveal = revealKey, clearance = clearance
+                    )
                 }
             }
             accordionTail(listState, openSection != null)
@@ -766,7 +862,8 @@ fun SessionWorkspace(
             onChoose = { pickLauncher.launch(arrayOf("audio/*", "video/*")) },
             onRemove = { row -> uploadRows.remove(row); File(row.file.path).delete() },
             onUpload = { queueUpload() },
-            onDismiss = { closeUpload(keepFiles = false) }
+            onDismiss = { closeUpload(keepFiles = false) },
+            onOpenDuplicate = { row -> (row.duplicate as? UploadDuplicate.OnServer)?.let(::openDuplicate) }
         )
     }
     micOff?.let { target ->
@@ -805,7 +902,7 @@ fun SessionWorkspace(
     }
 
     p2?.let { (req, model) ->
-        AlreadyRecordedSheet(model, onDismiss = { p2 = null; req.discardFiles() }) { choice ->
+        AlreadyRecordedSheet(model, onDismiss = { p2 = null; withdraw(req); req.discardFiles() }) { choice ->
             p2 = null
             when (choice) {
                 is P2Choice.Again -> {
@@ -830,23 +927,25 @@ fun SessionWorkspace(
             title = QuestionnaireCopy.p7Title(req.label, position),
             body = QuestionnaireCopy.p7Body(position),
             buttons = listOf(
-                PromptButton(QuestionnaireCopy.s("p7.cancel")) { p7 = null; req.discardFiles() },
+                PromptButton(QuestionnaireCopy.s("p7.cancel")) { p7 = null; withdraw(req); req.discardFiles() },
                 PromptButton(QuestionnaireCopy.s("p7.replace"), primary = true) {
                     p7 = null
                     startRecording(req, roster.associate { it.artisanId to "REDO" }, model.ackedRecordingIds, replaces = model.latestRecordingId)
                 }
             ),
-            onDismiss = { p7 = null; req.discardFiles() }
+            onDismiss = { p7 = null; withdraw(req); req.discardFiles() }
         )
     }
     differentFor?.let { req ->
         val all = instrument?.sections.orEmpty().flatMap { s -> listOf(SelectOption("S:${s.id}", "Section ${s.code} · ${s.title}")) + s.questions.map { SelectOption("Q:${it.lineageId}", "${it.displayCode} · ${it.prompt}") } }
         val uncoveredFirst = all.sortedBy { o -> if (known.any { it.targetKey == o.value && it.artisanId in roster.map { r -> r.artisanId } }) 1 else 0 }
-        SearchableSelectSheet(title = QuestionnaireCopy.s("p2.different"), options = uncoveredFirst, onDismiss = { differentFor = null }) { key ->
+        SearchableSelectSheet(title = QuestionnaireCopy.s("p2.different"), options = uncoveredFirst, onDismiss = { differentFor = null; withdraw(req); req.discardFiles() }) { key ->
             differentFor = null
             val target = if (key.startsWith("Q:")) QTargetRef(questionLineageId = key.removePrefix("Q:")) else QTargetRef(sectionId = key.removePrefix("S:"))
             val label = instrument?.label(key).orEmpty()
-            requestRecord(req.copy(target = target, label = label, code = label.removePrefix("Section ")))
+            val moved = req.copy(target = target, label = label, code = label.removePrefix("Section "))
+            announce(moved)
+            requestRecord(moved)
         }
     }
     p3?.let { req ->
@@ -1163,7 +1262,7 @@ fun SessionWorkspace(
             onDismiss = { discard = null }
         )
     }
-    if (leaving) LeaveSessionPrompt(pendingCount.coerceAtLeast(1), onStay = { leaving = false }) {
+    if (leaving) LeaveSessionPrompt(leaveCounts.uploading, onStay = { leaving = false }, failed = leaveCounts.failed) {
         leaving = false
         val s = RecordingService.state.value
         if (s is RecordingService.State.Recording && s.draft.sessionKey == clientKey) RecordingService.stop(context, "leave")

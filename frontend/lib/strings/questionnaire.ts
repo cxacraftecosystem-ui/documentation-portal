@@ -65,7 +65,7 @@ export const questionnaireStrings = {
   uploadOnWifiOnly: "Upload on Wi-Fi only",
   leaveTitle: "Leave this session?",
   leaveBodyWeb: ({ count }: { count: string | number }): string => `${count} takes haven't uploaded. They stay on this device and upload when you return.`,
-  leaveBodyAndroid: ({ count }: { count: string | number }): string => `${count} takes will keep uploading in the background.`,
+  leaveBodyAndroid: ({ count }: { count: string | number }): string => `Uploading ${count} takes. They carry on in the background after you leave, and wait for signal if there is none.`,
   stay: "Stay",
   leave: "Leave",
   alreadyRecordedTitle: "Already recorded",
@@ -487,6 +487,18 @@ export const questionnaireStrings = {
   openFullView: "Open full view",
   collapseTake: "Collapse take",
   transcriptAfterUpload: "Transcript after upload",
+  leaveFailedAndroid: ({ count }: { count: string | number }): string => `${count} takes didn't upload. They wait here for Retry.`,
+  uploadedToTarget: ({ count, target }: { count: string | number; target: string | number }): string => `${count} recordings uploaded to ${target}`,
+  uploadedToWhole: ({ count }: { count: string | number }): string => `${count} recordings uploaded to the whole session`,
+  alreadyInThisList: "Already in this list",
+  uploadingFromThisPhone: "Uploading from this phone",
+  inThisSession: "In this session",
+  inOtherSession: ({ title }: { title: string | number }): string => `In ${title}`,
+  open: "Open",
+  sortBy: "Sort by",
+  sortAdded: "Added",
+  sortRecorded: "Recorded",
+  takesCount: ({ count }: { count: string | number }): string => `${count} takes`,
 } as const;
 
 export type QuestionnaireStringKey = keyof typeof questionnaireStrings;

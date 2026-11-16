@@ -282,7 +282,8 @@ fun QuestionnaireHome(
     initialTab: QuestionnaireTab = QuestionnaireTab.SESSIONS,
     onBack: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
-    onLeaveSession: (() -> Unit)? = null
+    onLeaveSession: (() -> Unit)? = null,
+    onNotice: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val v2 = remember { QuestionnaireV2.get(context) }
@@ -596,6 +597,8 @@ fun QuestionnaireHome(
                     onBack = { backFromSession() },
                     onOpenSession = { session -> scope.launch { openServer(session) } },
                     onOpenReadView = { id -> noteOrigin(); route = QRoute.ReadView(id) },
+                    onOpenSessionId = { id -> scope.launch { openServerId(id) } },
+                    onNotice = onNotice,
                     onError = onError
                 )
             }

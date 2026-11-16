@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.fieldrepository.app.questionnaire.ui.AttachKind
 import com.fieldrepository.app.questionnaire.ui.PickedFile
+import com.fieldrepository.app.questionnaire.ui.UploadDuplicate
 import com.fieldrepository.app.questionnaire.ui.UploadPlan
 import com.fieldrepository.app.questionnaire.ui.UploadRow
 import com.fieldrepository.app.questionnaire.ui.UploadSheet
@@ -41,7 +42,7 @@ class UploadSheetUiTest {
         var attach by mutableStateOf(AttachKind.SECTION)
         compose.setContent {
             MaterialTheme {
-                val rows = remember { mutableStateListOf(UploadRow(part1), UploadRow(part2, LocalDate.parse("2026-11-14"))) }
+                val rows = remember { mutableStateListOf(UploadRow(part1), UploadRow(part2, UploadDuplicate.OnServer(LocalDate.parse("2026-11-14")))) }
                 UploadSheet(
                     rows = rows, checking = false, attach = attach, sectionCode = "E", sectionQuestions = 10,
                     questionOptions = listOf(SelectOption("l1", "E1 · Process?")), questionId = null, sessionDate = LocalDate.parse("2026-11-14"),

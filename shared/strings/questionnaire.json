@@ -69,7 +69,7 @@
     "uploadOnWifiOnly": "Upload on Wi-Fi only",
     "leaveTitle": "Leave this session?",
     "leaveBodyWeb": "{count} takes haven't uploaded. They stay on this device and upload when you return.",
-    "leaveBodyAndroid": "{count} takes will keep uploading in the background.",
+    "leaveBodyAndroid": "Uploading {count} takes. They carry on in the background after you leave, and wait for signal if there is none.",
     "stay": "Stay",
     "leave": "Leave",
     "alreadyRecordedTitle": "Already recorded",
@@ -490,6 +490,18 @@
     "playTake": "Play",
     "openFullView": "Open full view",
     "collapseTake": "Collapse take",
-    "transcriptAfterUpload": "Transcript after upload"
+    "transcriptAfterUpload": "Transcript after upload",
+    "leaveFailedAndroid": "{count} takes didn't upload. They wait here for Retry.",
+    "uploadedToTarget": "{count} recordings uploaded to {target}",
+    "uploadedToWhole": "{count} recordings uploaded to the whole session",
+    "alreadyInThisList": "Already in this list",
+    "uploadingFromThisPhone": "Uploading from this phone",
+    "inThisSession": "In this session",
+    "inOtherSession": "In {title}",
+    "open": "Open",
+    "sortBy": "Sort by",
+    "sortAdded": "Added",
+    "sortRecorded": "Recorded",
+    "takesCount": "{count} takes"
   }
 }

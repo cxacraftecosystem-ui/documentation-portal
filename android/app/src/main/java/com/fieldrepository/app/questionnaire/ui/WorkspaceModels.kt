@@ -7,6 +7,7 @@ import com.fieldrepository.app.questionnaire.data.QAnswersPut
 import com.fieldrepository.app.questionnaire.data.QRecording
 import com.fieldrepository.app.questionnaire.data.QSessionDetail
 import com.fieldrepository.app.questionnaire.data.QSessionReview
+import com.fieldrepository.app.questionnaire.data.QTargetRef
 import com.fieldrepository.app.questionnaire.data.QueuedSessionPatch
 import com.fieldrepository.app.questionnaire.data.RecordBy
 import com.fieldrepository.app.questionnaire.data.QuestionnaireCopy
@@ -102,6 +103,47 @@ object SavePillModel {
         }
         if (unit.steps.any { it.state == StepState.PENDING }) return SavePillState(SaveTone.ON_PHONE, QuestionnaireCopy.t("savedOnThisPhone"))
         return SavePillState(SaveTone.SAVED, QuestionnaireCopy.t("saved"))
+    }
+}
+
+data class UploadBatch(val keys: List<String>, val target: String?) {
+    val notice: String get() = QuestionnaireCopy.uploadedTo(keys.size, target)
+}
+
+object UploadBatches {
+    fun scopeOf(target: QTargetRef?): String = target?.targetKey ?: InPlaceTakes.WHOLE
+
+    fun split(batches: List<UploadBatch>, unit: SessionUnit?, recordings: List<QRecording>): Pair<List<UploadBatch>, List<UploadBatch>> {
+        val clips = unit?.steps.orEmpty().filter { it.kind == StepKind.CLIP }.associateBy { it.clip?.clientClipKey }
+        val onServer = recordings.mapNotNull { it.clientClipKey }.toSet()
+        val finished = mutableListOf<UploadBatch>()
+        val waiting = mutableListOf<UploadBatch>()
+        batches.forEach { batch ->
+            val states = batch.keys.map { key -> if (key in onServer) StepState.DONE else clips[key]?.state }
+            when {
+                states.any { it == StepState.FAILED } -> Unit
+                states.all { it == StepState.DONE } -> finished += batch
+                else -> waiting += batch
+            }
+        }
+        return finished to waiting
+    }
+
+    fun landed(before: SessionUnit?, after: SessionUnit?): Set<String> {
+        val was = before?.steps.orEmpty().filter { it.kind == StepKind.CLIP && it.state != StepState.DONE }.mapNotNull { it.clip?.clientClipKey }.toSet()
+        return after?.steps.orEmpty().filter { it.kind == StepKind.CLIP && it.state == StepState.DONE && it.clip?.clientClipKey in was }
+            .mapNotNull { it.clip?.clientClipKey }.toSet()
+    }
+}
+
+data class LeaveCounts(val uploading: Int, val failed: Int) {
+    val asks: Boolean get() = uploading > 0 || failed > 0
+
+    companion object {
+        fun of(unit: SessionUnit?, recording: Boolean): LeaveCounts {
+            val clips = unit?.steps.orEmpty().filter { it.kind == StepKind.CLIP }
+            return LeaveCounts(clips.count { it.state == StepState.PENDING } + if (recording) 1 else 0, clips.count { it.state == StepState.FAILED })
+        }
     }
 }
 

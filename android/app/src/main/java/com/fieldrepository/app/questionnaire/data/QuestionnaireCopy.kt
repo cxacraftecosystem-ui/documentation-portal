@@ -69,7 +69,7 @@ object QuestionnaireCopy {
         "waitingForSignal" to "Waiting for signal",
         "uploadFailedRetrying" to "Upload failed. Retrying.",
         "leaveTitle" to "Leave this session?",
-        "leaveBodyAndroid" to "{count} takes will keep uploading in the background.",
+        "leaveBodyAndroid" to "Uploading {count} takes. They carry on in the background after you leave, and wait for signal if there is none.",
         "stay" to "Stay",
         "leave" to "Leave",
         "alreadyRecordedTitle" to "Already recorded",
@@ -375,7 +375,19 @@ object QuestionnaireCopy {
         "registerArtisan" to "Register artisan",
         "more" to "More",
         "fillFromProfile" to "Fill from profile",
-        "editSession" to "Edit details"
+        "editSession" to "Edit details",
+        "leaveFailedAndroid" to "{count} takes didn't upload. They wait here for Retry.",
+        "uploadedToTarget" to "{count} recordings uploaded to {target}",
+        "uploadedToWhole" to "{count} recordings uploaded to the whole session",
+        "alreadyInThisList" to "Already in this list",
+        "uploadingFromThisPhone" to "Uploading from this phone",
+        "inThisSession" to "In this session",
+        "inOtherSession" to "In {title}",
+        "open" to "Open",
+        "sortBy" to "Sort by",
+        "sortAdded" to "Added",
+        "sortRecorded" to "Recorded",
+        "takesCount" to "{count} takes"
     )
 
     val sharedKeyOf: Map<String, String> = linkedMapOf(
@@ -759,6 +771,10 @@ object QuestionnaireCopy {
     fun uploading(percent: Int) = t("uploadingPercent", "percent" to percent)
     fun takesUploading(count: Int) = t("takesUploading", "count" to count)
     fun leaveBody(pending: Int) = t("leaveBodyAndroid", "count" to pending)
+    fun leaveBody(pending: Int, failed: Int): String =
+        listOfNotNull(if (pending > 0) leaveBody(pending) else null, if (failed > 0) t("leaveFailedAndroid", "count" to failed) else null).joinToString("\n")
+    fun uploadedTo(count: Int, target: String?): String =
+        if (target == null) t("uploadedToWhole", "count" to count) else t("uploadedToTarget", "count" to count, "target" to target)
 
     fun finishBody(sections: Int, artisans: Int, uploading: Int): String {
         val full = t("finishBody", "sections" to sections, "artisans" to artisans, "pending" to uploading)

@@ -154,11 +154,17 @@ class QuestionnaireV2 private constructor(context: Context) {
     suspend fun everyRecording(filters: QuestionnaireFilters): List<QRecording> =
         QuestionnairePages.every { cursor -> recordingsPage(filters, cursor, QuestionnairePages.PAGE).let { it.items to it.nextCursor } }
 
-    suspend fun recordingsPage(filters: QuestionnaireFilters, cursor: String? = null, limit: Int = 30): Paged<QRecording> =
-        runCatching { api.recordings(filters.toParams(), cursor, limit) }.fold(
+    suspend fun recordingsPage(filters: QuestionnaireFilters, cursor: String? = null, limit: Int = 30, sort: String? = null): Paged<QRecording> =
+        runCatching { api.recordings(filters.toParams(), cursor, limit, sort = sort) }.fold(
             { page -> runCatching { offlineRows.keepRecordings(page.items) }; Paged(page.items, page.nextCursor, false) },
-            { if (cursor != null) throw it else Paged(offlineRows.recordings(filters), null, true) }
+            { if (cursor != null) throw it else Paged(offlineRows.recordings(filters, sort ?: RecordingSort.ADDED), null, true) }
         )
+
+    fun recordingSort(): String = RecordingSort.of(prefs.getString(RecordingSort.PREF, null))
+
+    fun keepRecordingSort(sort: String) {
+        prefs.edit().putString(RecordingSort.PREF, RecordingSort.of(sort)).apply()
+    }
 
     suspend fun searchRecordings(query: String, limit: Int = 10): List<RecordingHit> =
         RecordingSearch.hits(recordingsPage(QuestionnaireFilters().withQ(query), limit = limit).items.take(limit), query)

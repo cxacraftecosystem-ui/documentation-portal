@@ -83,7 +83,7 @@ class QuestionnairePromptsTest {
         assertEquals("Replace take 1 of Section D?", QuestionnaireCopy.p7Title("Section D"))
         assertEquals("A 12-minute take of Section D was saved before the app closed.", QuestionnaireCopy.p13Body(12, "Section D"))
         assertEquals("Update when you have Wi-Fi. Your recordings are safe.", QuestionnaireCopy.s("p14.banner"))
-        assertEquals("2 takes will keep uploading in the background.", QuestionnaireCopy.leaveBody(2))
+        assertEquals("Uploading 2 takes. They carry on in the background after you leave, and wait for signal if there is none.", QuestionnaireCopy.leaveBody(2))
         assertEquals("6 sections recorded for 3 artisans. 2 takes still uploading.", QuestionnaireCopy.finishBody(6, 3, 2))
         assertEquals("Recordings of Giriraj may be sent to outside services to be written down or translated.", QuestionnaireCopy.consentNotice("Giriraj"))
         assertEquals("Recordings of Giriraj are not sent to outside services: consent was refused.", QuestionnaireCopy.consentNotice("Giriraj", refused = true))
