@@ -976,6 +976,29 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
+      - name: Pin the craft feed switch
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          CROSS_PORTAL_CRAFT_FEED_ENABLED: ${{ vars.CROSS_PORTAL_CRAFT_FEED_ENABLED }}
+        run: |
+          flag="$(printf '%s' "$CROSS_PORTAL_CRAFT_FEED_ENABLED" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+          case "$flag" in
+            ""|true|false) ;;
+            *) echo "::error::CROSS_PORTAL_CRAFT_FEED_ENABLED must be true or false; nothing was deployed."; exit 1 ;;
+          esac
+          {
+            printf 'FLAG=%q\n' "$flag"
+            cat <<'REMOTE'
+          set -euo pipefail
+          ENVFILE=/home/ubuntu/app/next/.env
+          if [ -z "$FLAG" ]; then echo "Craft feed switch: kept from the box"; exit 0; fi
+          [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
+          sed -i '/^CROSS_PORTAL_CRAFT_FEED_ENABLED=/d' "$ENVFILE"
+          printf 'CROSS_PORTAL_CRAFT_FEED_ENABLED=%s\n' "$FLAG" >> "$ENVFILE"
+          echo "Craft feed switch pinned: $FLAG"
+          REMOTE
+          } | ssh ubuntu@$EC2_HOST 'bash -s'
+
       - name: Migrate, start the new release beside the live one, switch when healthy
         run: |
           set -euo pipefail

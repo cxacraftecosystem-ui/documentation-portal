@@ -9,6 +9,7 @@ SHARED = (
     "cross_portal.py",
     "cross_portal_client.py",
     "cross_portal_peer.py",
+    "craft_feed.py",
     "search_embeddings.py",
 )
 HERE = Path(__file__).resolve().parents[1] / "app" / "services"

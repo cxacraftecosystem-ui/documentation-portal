@@ -44,7 +44,7 @@ SHARED_DIGESTS: dict[str, str] = {
     "backend/tests/test_craft_master_migration.py": "629224229f77e5db6ea1cb86033e0091eb39598acb719ea5fba305add4f90808",
     "backend/tests/test_map_crafts.py": "21c64991c71a098a31c1a0d95016f0115e35fee644809222087e19546f0472dc",
     "backend/tests/test_craft_catalogue_api.py": "6fba31d7536ccc85951fe7687f74770a019f6cb00a2e9b011be3340ee52e00dd",
-    "docs/CRAFTS.md": "faa3c82feaae70495152bc4928287cb50c18c020335c1da2b213979703234193",
+    "docs/CRAFTS.md": "4bf42f4e7d72082e040d2bd29aee5671ef02f78e186643190845be27ae56d98d",
 }
 
 
