@@ -311,6 +311,7 @@ class Session(Strict):
     counts: SessionCounts
     recordBy: str = "SECTION"
     progress: SessionProgress | None = None
+    mayChangeTakes: bool | None = None
 
 
 class SessionTotals(Strict):
