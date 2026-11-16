@@ -92,7 +92,7 @@ export function RecordingsList() {
               <RecordingChips chips={r.chips} onChip={onChip} filters={filters} />
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <Link
-                  className="min-w-0 max-w-full truncate text-sm text-purple-700 underline-offset-2 hover:underline"
+                  className="min-w-0 max-w-full truncate text-sm text-purple-700 underline-offset-2 hover:underline dark:text-purple-300"
                   href={`/questionnaire/sessions/${encodeURIComponent(r.sessionId)}/view`}
                 >
                   {r.chips?.session?.title || r.downloadName}

@@ -497,3 +497,58 @@ test("@qf:Q7 the recordings list orders by upload by default, by recording on re
   await page.getByRole("group", { name: S.sortRecordingsBy }).getByRole("button", { name: S.sortAdded, exact: true }).click();
   await expect.poll(shown, { timeout: 30_000 }).toEqual([recordedEarlier.clientClipKey, recordedFirst.clientClipKey]);
 });
+
+async function chooseSections(page: Page, scope: Locator, codes: string[]) {
+  await scope.getByRole("button", { name: S.coversSections }).click();
+  for (const code of codes) await page.getByRole("option", { name: new RegExp(`^${escape(S.chipSection({ code }))} ·`) }).click();
+  await page.keyboard.press("Escape");
+}
+
+test("@qf:Q4 a whole-session upload can cover sections: it lists under each one and counts all their questions", async ({ page }) => {
+  const session = await createSession({ recordBy: "SECTION" });
+  const file = audioFile(FILES, "Whole-covers-A-and-C.wav", 1);
+  await openSession(page, session);
+  const whole = page.locator("[data-whole-session]");
+  const { dialog, button } = await uploadThroughSheet(page, whole.getByRole("button", { name: S.upload, exact: true }), [file.path], S.uploadOneFile);
+  await expect(dialog.getByRole("radio", { name: S.wholeSession })).toBeChecked();
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.marksNoSection);
+  await chooseSections(page, dialog, ["C", "A"]);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "A, C" }));
+  await button.click();
+  await expect(page.getByText(S.uploadedOne({ target: S.sectionsLabel({ codes: "A, C" }) }))).toBeVisible({ timeout: 90_000 });
+  const take = (await as().getSession(session.id)).recordings[0];
+  expect(take.targets.map((t) => t.sectionId).sort(), "one section target per chosen section").toEqual([section("A"), section("C")].sort());
+  await expect(sectionHeader(page, "A")).toContainText(S.inSectionTake);
+  await expect(sectionHeader(page, "C")).toContainText(S.inSectionTake);
+  await expect(whole.locator("[data-whole-take]")).toHaveCount(0);
+  await openSection(page, "C");
+  await expect(page.locator("[data-section-takes='C'] [data-take-row-in-place]")).toHaveCount(1);
+  await expect(page.locator("[data-question] [data-question-state='SECTION_TAKE']").first()).toBeVisible();
+});
+
+test("@qf:Q4 Mark sections moves a whole-session take into the sections it covers, and a stale version is reloaded and said", async ({ page }) => {
+  const session = await createSession({ recordBy: "SECTION" });
+  await uploadTake(session, null, { durationMs: 70_000 });
+  const take = (await as().getSession(session.id)).recordings[0];
+  await openSession(page, session);
+  const whole = page.locator("[data-whole-session]");
+  await expect(whole.locator("[data-whole-take]")).toHaveCount(1);
+  await whole.locator("[data-mark-sections-open]").click();
+  const dialog = page.getByRole("dialog", { name: S.markSections });
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.marksNoSection);
+  await chooseSections(page, dialog, ["B"]);
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "B" }));
+  await as().patchRecording(take.id, { version: take.version, targets: [] });
+  await dialog.locator("[data-mark-sections-save]").click();
+  await expect(dialog.locator("[data-mark-sections-notice]")).toHaveText(S.takeChangedReloaded);
+  await dialog.locator("[data-mark-sections-save]").click();
+  await expect(dialog).toBeHidden({ timeout: 30_000 });
+  await expect(sectionHeader(page, "B")).toHaveAttribute("aria-expanded", "true");
+  await expect(sectionHeader(page, "B")).toContainText(S.inSectionTake);
+  await expect(page.locator("[data-section-takes='B'] [data-take-row-in-place]")).toHaveCount(1);
+  await expect(whole.locator("[data-whole-take]")).toHaveCount(0);
+  const after = (await as().getSession(session.id)) as unknown as { recordings: { targets: { sectionId: string | null }[] }[]; progress?: { answeredQuestions: number } };
+  expect(after.recordings[0].targets.map((t) => t.sectionId)).toEqual([section("B")]);
+  expect(after.progress?.answeredQuestions ?? 0, "the session's progress counts section B").toBeGreaterThan(0);
+});

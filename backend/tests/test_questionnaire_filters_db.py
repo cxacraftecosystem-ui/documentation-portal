@@ -380,6 +380,44 @@ def test_a_sha_lookup_names_the_session_that_holds_the_file(monkeypatch: pytest.
     _run(monkeypatch, body)
 
 
+def test_a_whole_session_take_can_cover_several_sections_and_counts_for_all_their_questions(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import HTTPException
+
+    from app.questionnaire import coverage, recordings, schemas as S, sessions
+
+    async def body(c: Any, ids: SimpleNamespace) -> None:
+        both = [S.TargetInput(sectionId=ids.sec["A"]), S.TargetInput(sectionId=ids.sec["B"])]
+        resolved = await coverage.resolve_targets(c, ids.form, both)
+        assert [t["targetKey"] for t in resolved] == [f"S:{ids.sec['A']}", f"S:{ids.sec['B']}"], "several section targets resolve in order"
+        whole = await _take(c, ids.s1, ids.lead, "2026-10-20T07:00:00", subjects=[(ids.a["a1"], "ANSWERED")])
+
+        def section_b(payload: dict[str, Any]) -> dict[str, Any]:
+            return next(s for s in payload["progress"]["sections"] if s["sectionId"] == ids.sec["B"])
+
+        before = await sessions.session_payload(c, ids.s1, ids.lead)
+        assert section_b(before)["inSectionTake"] is False
+        assert before["mayChangeTakes"] is True, "the session's lead may change its takes"
+        assert (await sessions.session_payload(c, ids.s1, ids.other))["mayChangeTakes"] is False, "a stranger may not"
+
+        marked = await recordings.patch(whole, S.RecordingPatch(version=1, targets=both), ids.lead, client=c)
+        assert sorted(t["sectionId"] for t in marked["targets"]) == sorted([ids.sec["A"], ids.sec["B"]])
+        assert marked["version"] == 2
+        after = await sessions.session_payload(c, ids.s1, ids.lead)
+        assert section_b(after)["inSectionTake"] is True, "the take now counts for every question in B"
+        assert section_b(after)["answeredQuestions"] == section_b(after)["totalQuestions"]
+
+        with pytest.raises(HTTPException) as stale:
+            await recordings.patch(whole, S.RecordingPatch(version=1, targets=[]), ids.lead, client=c)
+        assert stale.value.status_code == 409, "an old version is refused, not written over"
+        with pytest.raises(HTTPException) as refused:
+            await recordings.patch(whole, S.RecordingPatch(version=2, targets=[]), ids.other, client=c)
+        assert refused.value.status_code == 403
+        cleared = await recordings.patch(whole, S.RecordingPatch(version=2, targets=[]), ids.lead, client=c)
+        assert cleared["targets"] == [], "marked back to the whole session"
+
+    _run(monkeypatch, body)
+
+
 def test_the_forms_library_and_the_filter_options(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.questionnaire import chips, filters
 

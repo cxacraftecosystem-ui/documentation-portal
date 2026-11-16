@@ -9,6 +9,8 @@ import { qs } from "@/lib/questionnaire/qs";
 import { DEFAULT_RECORDING_SORT, readRecordingSort, recordingSortKey, recordingSortOptions, writeRecordingSort } from "@/lib/questionnaire/recordingSort";
 import { questionLocalTakes, takeSlot, wholeSessionTakes } from "@/lib/questionnaire/takeInPlace";
 import { batchOutcome, duplicateStates, duplicateView, flagDuplicates, toUpload, uploadedLine, type QueuedCopy } from "@/lib/questionnaire/uploads";
+import { questionProgress } from "@/lib/questionnaire/coverageCache";
+import { coverCodes, coverHelper, coverLabel, coverOptions, coverTargets, mayChangeTake, sectionTargetIds } from "@/lib/questionnaire/sectionCover";
 
 const read = (...parts: string[]) => readFileSync(join(__dirname, "..", ...parts), "utf8").replace(/\r\n/g, "\n");
 
@@ -175,4 +177,57 @@ test("the recordings order is Added unless this viewer chose Recorded, and the c
   expect(list).toContain("<SegmentedChoice");
   expect(list).toContain("useRecordingSort()");
   expect(read("components", "questionnaire", "RecordingSearchGroup.tsx")).toContain("useRecordingSort()");
+});
+
+test("a whole-session take can cover sections: one section target each, named for what it counts", () => {
+  const sections = [
+    { id: "s-a", code: "A", title: "Origin" },
+    { id: "s-b", code: "B", title: "Family" },
+    { id: "s-c", code: "C", title: "Craft" }
+  ];
+  expect(coverHelper([])).toBe("Marks no section");
+  expect(coverHelper(coverCodes(sections, ["s-c", "s-a"]))).toBe("Counts for all questions in A, C");
+  expect(coverTargets(sections, ["s-c", "s-a", "gone"]), "in the questionnaire's order, unknown ids dropped").toEqual([{ sectionId: "s-a" }, { sectionId: "s-c" }]);
+  expect(coverLabel([])).toBe("Whole session");
+  expect(coverLabel(["E"])).toBe("Section E");
+  expect(coverLabel(["A", "C"])).toBe("Sections A, C");
+  expect(coverOptions(sections)[0]).toEqual({ value: "s-a", label: "Section A · Origin" });
+  expect(sectionTargetIds([{ sectionId: "s-a" }, { questionLineageId: "q1" }, { sectionId: "s-c", questionLineageId: null }])).toEqual(["s-a", "s-c"]);
+  const progress = questionProgress({
+    sections: [
+      { id: "s-a", questions: [{ lineageId: "a1" }, { lineageId: "a2" }] },
+      { id: "s-b", questions: [{ lineageId: "b1" }] },
+      { id: "s-c", questions: [{ lineageId: "c1" }, { lineageId: "c2" }] }
+    ],
+    recordings: [{ id: "r1", targets: [{ sectionId: "s-a" }, { sectionId: "s-c" }], subjects: [{ role: "ANSWERED" }], durationMs: 60_000, removedAt: null, filing: "FILED" }],
+    answers: []
+  });
+  expect(progress.sections["s-a"]).toMatchObject({ answered: 2, total: 2, inSectionTake: true });
+  expect(progress.sections["s-c"]).toMatchObject({ answered: 2, total: 2, inSectionTake: true });
+  expect(progress.sections["s-b"]).toMatchObject({ answered: 0, inSectionTake: false });
+  expect(progress.answered).toBe(4);
+  const sheet = read("components", "questionnaire", "UploadSheet.tsx");
+  expect(sheet).toContain('target.kind === "SESSION" ? <SectionsChooser');
+  expect(sheet).toContain('{ kind: "SESSION", sectionIds: covered }');
+  const workspace = read("components", "questionnaire", "SessionWorkspace.tsx");
+  expect(workspace).toContain("coverTargets(shownGrid.sections, upload.sectionIds ?? [])");
+  expect(read("components", "questionnaire", "SectionsChooser.tsx")).toContain("<SearchableMultiSelect");
+});
+
+test("Mark sections is offered to whoever the server lets change the take, PATCHes its targets and reloads on a stale version", () => {
+  expect(mayChangeTake({ recordedBy: { id: "u1" } }, "u1", {}), "the uploader").toBe(true);
+  expect(mayChangeTake({ recordedBy: { id: "u1" } }, "u2", { mayChangeTakes: true }), "anyone the session lets work in it").toBe(true);
+  expect(mayChangeTake({ recordedBy: { id: "u1" } }, "u2", { mayChangeTakes: false })).toBe(false);
+  expect(mayChangeTake({ recordedBy: { id: "u1" } }, null, {})).toBe(false);
+  const workspace = read("components", "questionnaire", "SessionWorkspace.tsx");
+  const save = workspace.slice(workspace.indexOf("async function saveSections("), workspace.indexOf("function uploadFiles("));
+  expect(save).toContain("questionnaireApi.patchRecording(take.id, { version: take.version, targets: coverTargets(shownGrid.sections, ids) })");
+  expect(save).toContain('contractError(error)?.code === "STALE_VERSION"');
+  expect(save.indexOf("await load();", save.indexOf("STALE_VERSION"))).toBeGreaterThan(-1);
+  expect(save).toContain('qs("takeChangedReloaded")');
+  expect(workspace).toContain("data-mark-sections-open");
+  expect(workspace).toContain("mayChangeTake(found, me, session)");
+  expect(qs("markSections")).toBe("Mark sections");
+  expect(qs("takeChangedReloaded")).toBe("This take changed on another device and has been reloaded. Choose again.");
+  expect(read("components", "questionnaire", "RecordingsList.tsx")).toContain("hover:underline dark:text-purple-300");
 });

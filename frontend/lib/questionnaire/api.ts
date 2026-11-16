@@ -209,6 +209,7 @@ export type Session = {
   progress?: SessionProgress | null;
   respondents?: Respondent[];
   mayOverrideAnswers?: boolean;
+  mayChangeTakes?: boolean;
   source?: "APP" | "UPLOAD" | "HANDOFF" | string;
   deletedAt?: string | null;
   chips?: RecordingChips | null;

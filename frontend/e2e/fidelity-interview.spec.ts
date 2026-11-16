@@ -226,6 +226,39 @@ capture("RecordingsSort", "recordings list, added then recorded", async (page, w
   await shoot(page, "RecordingsSort", width, theme, "recorded");
 });
 
+async function pickSections(page: Page, scope: Locator, codes: string[]) {
+  await scope.getByRole("button", { name: S.coversSections }).click();
+  for (const code of codes) await page.getByRole("option", { name: new RegExp(`^${escape(S.chipSection({ code }))} ·`) }).click();
+  await page.keyboard.press("Escape");
+}
+
+capture("UploadCovers", "upload to the whole session covering sections", async (page, width, theme) => {
+  const session = await createSession({ artisans: [MEERA] });
+  const file = audioFile(FILES, `covers-${width}-${theme}.wav`, 1);
+  await openSession(page, session);
+  await page.locator("[data-whole-session]").getByRole("button", { name: S.upload, exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: S.uploadRecordings });
+  await dialog.locator("input[type=file]").setInputFiles([file.path]);
+  await expect(dialog.getByRole("button", { name: S.uploadOneFile })).toBeEnabled({ timeout: 30_000 });
+  await pickSections(page, dialog, ["A", "C"]);
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "A, C" }));
+  await dialog.locator("[data-sections-chooser]").scrollIntoViewIfNeeded();
+  await shoot(page, "UploadCovers", width, theme);
+  await partShot(dialog, "UploadCovers", width, theme, "dialog");
+});
+
+capture("MarkSections", "mark a whole-session take with sections", async (page, width, theme) => {
+  const session = await createSession({ artisans: [MEERA] });
+  await uploadTake(session, null, { durationMs: 192_000 });
+  await openSession(page, session);
+  await page.locator("[data-whole-session] [data-mark-sections-open]").click();
+  const dialog = page.getByRole("dialog", { name: S.markSections });
+  await pickSections(page, dialog, ["B"]);
+  await expect(dialog.locator("[data-sections-helper]")).toHaveText(S.countsForSections({ codes: "B" }));
+  await shoot(page, "MarkSections", width, theme);
+  await partShot(dialog, "MarkSections", width, theme, "dialog");
+});
+
 capture("AnsweredBy", "who answered", async (page, width, theme) => {
   const session = await createSession({ artisans: [...GROUP] });
   await openSession(page, session);

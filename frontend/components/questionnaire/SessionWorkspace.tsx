@@ -19,6 +19,7 @@ import { RecordUploadPair } from "@/components/questionnaire/RecordUploadPair";
 import { ReviewFinish, reviewSummary, type FailedUpload } from "@/components/questionnaire/ReviewFinish";
 import { SavePill, saveState } from "@/components/questionnaire/SavePill";
 import { SessionHeader } from "@/components/questionnaire/SessionHeader";
+import { MarkSectionsDialog } from "@/components/questionnaire/SectionsChooser";
 import { REVEAL_MARGINS, TakeInPlace, TakeRegion, TakeRow, useTakePlayer, type TakeItem } from "@/components/questionnaire/TakeInPlace";
 import { takeRow, TakeSheet } from "@/components/questionnaire/TakeSheet";
 import { questionLocalTakes, questionTake as findQuestionTake, sectionTakes, takeMedia, takeSlot, wholeSessionTakes, withLanded, type TakeMedia } from "@/lib/questionnaire/takeInPlace";
@@ -73,6 +74,7 @@ import { clipUploadState, isPermanent, isRecordByConflict, queuedRecordBy, sendD
 import { consentSubject, pickedFileMeta, rosterArtisans, takesFor, takeSubjects } from "@/lib/questionnaire/view";
 import { assembleTake, recorderStore, recoverable, recoveredMinutes, type TakeChunk, type TakeDraft } from "@/lib/questionnaire/recorderStore";
 import { batchOutcome, settleBatch, uploadedLine, type QueuedCopy, type UploadRow } from "@/lib/questionnaire/uploads";
+import { coverCodes, coverLabel, coverTargets, mayChangeTake, sectionTargetIds } from "@/lib/questionnaire/sectionCover";
 import { qs } from "@/lib/questionnaire/qs";
 import { sessionSpokenLanguage } from "@/lib/transcript/spokenLanguage";
 import { artisanFilter } from "@/lib/questionnairePortal";
@@ -249,6 +251,7 @@ export function SessionWorkspace({ id }: { id: string }) {
   const [staged, setStaged] = useState<StagedTake[]>([]);
   const [reveal, setReveal] = useState<Reveal | null>(null);
   const [batch, setBatch] = useState<{ keys: string[]; target: string } | null>(null);
+  const [marking, setMarking] = useState<{ recordingId: string; notice: string | null } | null>(null);
   const { toast } = useToast();
   const wantedRecording = useRef<string | null>(null);
   const [dockHeight, setDockHeight] = useState(0);
@@ -304,7 +307,7 @@ export function SessionWorkspace({ id }: { id: string }) {
   const rowKeyText = [...unitClips.map((s) => s.clientClipKey), ...staged.map((s) => s.clientClipKey)].join("|");
 
   const revealTake = useCallback(
-    (recording: Recording) => {
+    (recording: Recording, play = true) => {
       const sectionOfLineage = (lineageId: string) => grid?.sections.find((s) => s.questions?.some((q) => q.lineageId === lineageId))?.id ?? null;
       const { slot, sectionId } = takeSlot(recording.targets, sectionOfLineage);
       if (sectionId) setActiveSection(sectionId);
@@ -312,7 +315,7 @@ export function SessionWorkspace({ id }: { id: string }) {
       const code = lineage ? grid?.sections.flatMap((s) => s.questions ?? []).find((q) => q.lineageId === lineage)?.displayCode : null;
       const fallback = code ? `[data-question="${code}"]` : sectionId ? `#section-${sectionId}` : "[data-whole-session]";
       setReveal({ keys: [recording.clientClipKey], fallback });
-      showTake(slot, recording.clientClipKey);
+      if (play) showTake(slot, recording.clientClipKey);
     },
     [grid, showTake]
   );
@@ -918,7 +921,29 @@ export function SessionWorkspace({ id }: { id: string }) {
       const code = labelOf(questionKey(upload.lineageId));
       return { targets: [{ questionLineageId: upload.lineageId }], label: code, code };
     }
-    return { targets: [], label: qs("wholeSession"), code: "" };
+    const codes = coverCodes(shownGrid.sections, upload.sectionIds ?? []);
+    return { targets: coverTargets(shownGrid.sections, upload.sectionIds ?? []), label: coverLabel(codes), code: codes.join(", ") };
+  }
+
+  async function saveSections(recordingId: string, ids: string[]) {
+    const take = detail?.recordings.find((r) => r.id === recordingId);
+    if (!take) {
+      setMarking(null);
+      return;
+    }
+    try {
+      const saved = await questionnaireApi.patchRecording(take.id, { version: take.version, targets: coverTargets(shownGrid.sections, ids) });
+      setMarking(null);
+      await load();
+      if (ids.length) revealTake(saved, false);
+    } catch (error) {
+      if (contractError(error)?.code === "STALE_VERSION") {
+        await load();
+        setMarking({ recordingId, notice: qs("takeChangedReloaded") });
+        return;
+      }
+      setMarking({ recordingId, notice: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   function uploadFiles(rows: UploadRow[], upload: UploadTarget) {
@@ -1094,6 +1119,12 @@ export function SessionWorkspace({ id }: { id: string }) {
     questionLocalTakes(lineageId, takeRecordings, outboxTakes)
       .map((x) => x.item)
       .filter((item) => item.key !== shown?.key);
+  const markingTake = marking ? (detail.recordings.find((r) => r.id === marking.recordingId) ?? null) : null;
+  const markable = (item: TakeItem): Recording | null => {
+    if (!item.recording || !live) return null;
+    const found = takeRecordings.find((r) => r.id === item.recording?.id) ?? null;
+    return found && !found.removedAt && mayChangeTake(found, me, session) ? found : null;
+  };
   const decisions = detail.recordings.filter((r) => !r.removedAt && r.filing === "NEEDS_DECISION");
   const awayPeople = session.participants.filter((p) => p.leftAt);
 
@@ -1226,6 +1257,17 @@ export function SessionWorkspace({ id }: { id: string }) {
           onClose={() => setUploadFor(null)}
           onUpload={uploadFiles}
           onOpenDuplicate={openDuplicate}
+        />
+      ) : null}
+
+      {marking && markingTake ? (
+        <MarkSectionsDialog
+          name={serverTake(markingTake).label}
+          sections={uploadSections}
+          initial={sectionTargetIds(markingTake.targets)}
+          notice={marking.notice}
+          onClose={() => setMarking(null)}
+          onSave={(ids) => saveSections(markingTake.id, ids)}
         />
       ) : null}
 
@@ -1754,9 +1796,22 @@ export function SessionWorkspace({ id }: { id: string }) {
                     item={item}
                     playLabel={item.label}
                     lead={
-                      <p className="text-[0.8125rem] font-semibold text-ink-900" data-whole-take={item.key}>
-                        {item.label}
-                      </p>
+                      <div className="grid min-w-0 justify-items-start gap-0.5">
+                        <p className="text-[0.8125rem] font-semibold text-ink-900" data-whole-take={item.key}>
+                          {item.label}
+                        </p>
+                        {markable(item) ? (
+                          <button
+                            type="button"
+                            className="min-h-11 text-sm font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300"
+                            aria-label={qs("markSectionsNamed", { name: item.label })}
+                            onClick={() => setMarking({ recordingId: markable(item)!.id, notice: null })}
+                            data-mark-sections-open={item.key}
+                          >
+                            {qs("markSections")}
+                          </button>
+                        ) : null}
+                      </div>
                     }
                   />
                 </li>

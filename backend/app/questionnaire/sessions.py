@@ -325,6 +325,7 @@ async def session_payload(client: Any, session_id: str, viewer: Any = None) -> d
     out["mayOverrideAnswers"] = bool(viewer) and (
         str(getattr(viewer, "id", "")) in leads or await may_override_answers(viewer, row, client=client)
     )
+    out["mayChangeTakes"] = bool(viewer) and await can_work_in(client, viewer, row)
     return out
 
 

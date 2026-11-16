@@ -106,7 +106,7 @@
       "researchers": [{"userId": "u3", "name": "Nandini", "role": "LEAD"}],
       "status": "PENDING", "submittedAt": "2026-07-01T12:54:00Z", "reviewReasons": [],
       "counts": {"sections": 6, "takes": 9, "needsDecision": 0, "answeredQuestions": 18, "totalQuestions": 108},
-      "recordBy": "SECTION",
+      "recordBy": "SECTION", "mayChangeTakes": true,
       "progress": {"answeredQuestions": 18, "totalQuestions": 108,
                    "sections": [{"sectionId": "secA", "answeredQuestions": 5, "totalQuestions": 5, "inSectionTake": true},
                                 {"sectionId": "secD", "answeredQuestions": 6, "totalQuestions": 9, "inSectionTake": false}]}

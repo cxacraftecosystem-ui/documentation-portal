@@ -4,6 +4,7 @@ import { AlertTriangle, Check, Upload, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { FieldDialog } from "@/components/dialogs/FieldDialog";
+import { SectionsChooser } from "@/components/questionnaire/SectionsChooser";
 import { ButtonRow } from "@/components/ui/ButtonRow";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { questionnaireApi, mintKey, type ShaMatch } from "@/lib/questionnaire/api";
@@ -14,7 +15,7 @@ import { duplicateStates, duplicateView, recordedAtOf, toUpload, type DuplicateO
 
 export type { DuplicateOpen };
 
-export type UploadTarget = { kind: "SECTION"; sectionId: string } | { kind: "QUESTION"; lineageId: string } | { kind: "SESSION" };
+export type UploadTarget = { kind: "SECTION"; sectionId: string } | { kind: "QUESTION"; lineageId: string } | { kind: "SESSION"; sectionIds?: string[] };
 
 export type UploadSection = { id: string; code: string; title: string; questions: { lineageId: string; displayCode: string; prompt: string }[] };
 
@@ -88,6 +89,7 @@ export function UploadSheet({
   const [picked, setRows] = useState<UploadRow[]>([]);
   const [target, setTarget] = useState<UploadTarget>(defaultTarget);
   const [question, setQuestion] = useState<string>(defaultTarget.kind === "QUESTION" ? defaultTarget.lineageId : "");
+  const [covered, setCovered] = useState<string[]>(defaultTarget.kind === "SESSION" ? (defaultTarget.sectionIds ?? []) : []);
   const [dragging, setDragging] = useState(false);
   const [found, setFound] = useState<{ key: string; matches: ShaMatch[] }>({ key: "", matches: [] });
   const shaKey = [...new Set(picked.map((r) => r.sha).filter((sha): sha is string => Boolean(sha)))].sort().join(",");
@@ -131,7 +133,8 @@ export function UploadSheet({
 
   const ready = toUpload(rows).filter((r) => r.sha !== null);
   const hashing = rows.some((r) => r.sha === null);
-  const chosen: UploadTarget = target.kind === "QUESTION" ? { kind: "QUESTION", lineageId: question } : target;
+  const chosen: UploadTarget =
+    target.kind === "QUESTION" ? { kind: "QUESTION", lineageId: question } : target.kind === "SESSION" ? { kind: "SESSION", sectionIds: covered } : target;
   const online = typeof navigator === "undefined" || navigator.onLine !== false;
   const blocked = uploadBlocked({ ready: ready.length, hashing, shaKey, checkedKey: found.key, online }) || (chosen.kind === "QUESTION" && !chosen.lineageId);
   const options: { kind: UploadTarget["kind"]; label: string }[] = [
@@ -273,6 +276,7 @@ export function UploadSheet({
           {target.kind === "SECTION" && section ? (
             <span className="text-sm text-ink-500">{qs("countsForAllQuestions", { count: section.questions.length, code: section.code })}</span>
           ) : null}
+          {target.kind === "SESSION" ? <SectionsChooser sections={sections} values={covered} onChange={setCovered} /> : null}
           {target.kind === "QUESTION" ? (
             <SearchableSelect
               value={question}

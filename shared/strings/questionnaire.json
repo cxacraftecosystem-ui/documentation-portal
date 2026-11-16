@@ -508,6 +508,13 @@
     "openDuplicateNamed": "Open {name}",
     "sortRecordingsBy": "Sort by",
     "sortAdded": "Added",
-    "sortRecorded": "Recorded"
+    "sortRecorded": "Recorded",
+    "coversSections": "Covers sections",
+    "marksNoSection": "Marks no section",
+    "countsForSections": "Counts for all questions in {codes}",
+    "sectionsLabel": "Sections {codes}",
+    "markSections": "Mark sections",
+    "markSectionsNamed": "Mark sections for {name}",
+    "takeChangedReloaded": "This take changed on another device and has been reloaded. Choose again."
   }
 }
