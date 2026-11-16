@@ -187,63 +187,63 @@ export function UploadSheet({
               const view = row.duplicate ? duplicateView(row.duplicate) : null;
               const open = view?.open && onOpenDuplicate ? view.open : null;
               return (
-              <li key={row.key} className="grid gap-2.5 rounded-md border border-line-200 py-3 pl-3.5 pr-2" data-upload-row={row.file.name} data-duplicate={row.duplicate ? row.duplicate.kind : undefined}>
-                <div className="flex items-center gap-3">
-                  <span
-                    aria-hidden
-                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-sm ${
-                      row.duplicateOn ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100" : "bg-success-100 text-success-600 dark:bg-success-600/25 dark:text-green-400"
-                    }`}
-                  >
-                    {row.duplicateOn ? <AlertTriangle className="h-4.5 w-4.5" /> : <Check className="h-4.5 w-4.5" />}
-                  </span>
-                  <span className="grid min-w-0 flex-1 gap-0.5">
-                    <span className="truncate text-[0.9375rem] font-semibold text-ink-900">{row.file.name}</span>
-                    <span className="text-[0.8125rem] text-ink-500">
-                      {clock(row.durationMs) ? qs("uploadFileMeta", { duration: clock(row.durationMs), date: stampLabel(row.recordedAt) }) : stampLabel(row.recordedAt)}
-                    </span>
-                  </span>
-                  {row.duplicateOn ? (
-                    <button type="button" className="field-button-secondary min-h-11 font-semibold" onClick={() => setRows(rows.filter((r) => r.key !== row.key))}>
-                      {qs("remove")}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      aria-label={qs("removeNamed", { name: row.file.name })}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-700 hover:bg-field-100"
-                      onClick={() => setRows(rows.filter((r) => r.key !== row.key))}
+                <li key={row.key} className="grid gap-2.5 rounded-md border border-line-200 py-3 pl-3.5 pr-2" data-upload-row={row.file.name} data-duplicate={row.duplicate ? row.duplicate.kind : undefined}>
+                  <div className="flex items-center gap-3">
+                    <span
+                      aria-hidden
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-sm ${
+                        row.duplicateOn ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100" : "bg-success-100 text-success-600 dark:bg-success-600/25 dark:text-green-400"
+                      }`}
                     >
-                      <X className="h-4.5 w-4.5" aria-hidden />
-                    </button>
-                  )}
-                </div>
-                {view ? (
-                  <div className="ml-12 grid min-w-0 justify-items-start gap-1">
-                    <span className="w-fit rounded-sm bg-amber-100 px-2.5 py-1 text-[0.8125rem] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-100" data-already-uploaded>
-                      {view.chip}
+                      {row.duplicateOn ? <AlertTriangle className="h-4.5 w-4.5" /> : <Check className="h-4.5 w-4.5" />}
                     </span>
-                    {view.where ? (
-                      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-3" data-duplicate-where>
-                        <span className="min-w-0 max-w-full truncate text-[0.8125rem] text-ink-700" title={view.where}>
-                          {view.where}
-                        </span>
-                        {open ? (
-                          <button
-                            type="button"
-                            className="min-h-11 text-sm font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300"
-                            aria-label={qs("openDuplicateNamed", { name: row.file.name })}
-                            onClick={() => onOpenDuplicate?.(open)}
-                            data-duplicate-open={open.kind}
-                          >
-                            {qs("openDuplicate")}
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
+                    <span className="grid min-w-0 flex-1 gap-0.5">
+                      <span className="truncate text-[0.9375rem] font-semibold text-ink-900">{row.file.name}</span>
+                      <span className="text-[0.8125rem] text-ink-500">
+                        {clock(row.durationMs) ? qs("uploadFileMeta", { duration: clock(row.durationMs), date: stampLabel(row.recordedAt) }) : stampLabel(row.recordedAt)}
+                      </span>
+                    </span>
+                    {row.duplicateOn ? (
+                      <button type="button" className="field-button-secondary min-h-11 font-semibold" onClick={() => setRows(rows.filter((r) => r.key !== row.key))}>
+                        {qs("remove")}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={qs("removeNamed", { name: row.file.name })}
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-ink-700 hover:bg-field-100"
+                        onClick={() => setRows(rows.filter((r) => r.key !== row.key))}
+                      >
+                        <X className="h-4.5 w-4.5" aria-hidden />
+                      </button>
+                    )}
                   </div>
-                ) : null}
-              </li>
+                  {view ? (
+                    <div className="ml-12 grid min-w-0 justify-items-start gap-1">
+                      <span className="w-fit rounded-sm bg-amber-100 px-2.5 py-1 text-[0.8125rem] font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-100" data-already-uploaded>
+                        {view.chip}
+                      </span>
+                      {view.where ? (
+                        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-3" data-duplicate-where>
+                          <span className="min-w-0 max-w-full truncate text-[0.8125rem] text-ink-700" title={view.where}>
+                            {view.where}
+                          </span>
+                          {open ? (
+                            <button
+                              type="button"
+                              className="min-h-11 text-sm font-semibold text-purple-700 underline underline-offset-2 dark:text-purple-300"
+                              aria-label={qs("openDuplicateNamed", { name: row.file.name })}
+                              onClick={() => onOpenDuplicate?.(open)}
+                              data-duplicate-open={open.kind}
+                            >
+                              {qs("openDuplicate")}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </li>
               );
             })}
           </ul>
