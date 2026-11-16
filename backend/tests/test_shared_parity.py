@@ -42,5 +42,5 @@ def test_every_string_key_is_unique_and_placeholders_are_named() -> None:
     snake = [re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", key).lower() for key in strings]
     assert len(snake) == len(set(snake)), "two keys collapse to one Android resource name"
     for key, text in strings.items():
-        assert "%" not in re.sub(r"\{[A-Za-z][A-Za-z0-9]*\}", "", text) or key in ("uploadingPercent", "takesUploadingPercent"), key
+        assert "%" not in re.sub(r"\{[A-Za-z][A-Za-z0-9]*\}", "", text) or key in ("uploadingPercent", "takesUploadingPercent", "takesUploadingPercentOne"), key
         assert "{" not in re.sub(r"\{[A-Za-z][A-Za-z0-9]*\}", "", text), f"{key}: malformed placeholder"
