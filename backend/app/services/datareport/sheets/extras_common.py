@@ -365,9 +365,18 @@ def json_text(value: Any) -> str:
         return str(value)
 
 
+def tool_artisans(tool: Any) -> list[str]:
+    out: list[str] = []
+    for holder in [tool, *(g(tool, "artisanLinks") or [])]:
+        aid = str(g(holder, "artisanId") or ident(g(holder, "artisan")) or "")
+        if aid and aid not in out:
+            out.append(aid)
+    return out
+
+
 def media_owner_artisans(ctx: ReportContext) -> dict[str, set[str]]:
     product_artisan = {ident(p): str(g(p, "artisanId") or "") for p in records(ctx, "products", filtered=False)}
-    tool_artisan = {ident(t): str(g(t, "artisanId") or "") for t in records(ctx, "tools", filtered=False)}
+    tool_artisan = {ident(t): tool_artisans(t) for t in records(ctx, "tools", filtered=False)}
     interview_artisans: dict[str, set[str]] = {}
     for interview in records(ctx, "interviews", filtered=False):
         for link in g(interview, "artisans") or []:
@@ -387,8 +396,7 @@ def media_owner_artisans(ctx: ReportContext) -> dict[str, set[str]]:
         if product_artisan.get(product):
             owners.add(product_artisan[product])
         tool = str(g(media, "toolId") or (linked if tag == "tool" else ""))
-        if tool_artisan.get(tool):
-            owners.add(tool_artisan[tool])
+        owners.update(tool_artisan.get(tool, ()))
         interview = str(g(media, "questionnaireInterviewId") or "")
         if not interview and tag in ("questionnaire", "questionnaireinterview"):
             interview = linked
