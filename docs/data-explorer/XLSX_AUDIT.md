@@ -6,7 +6,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Design Prototype Workshop
 
-142 models, 1776 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+143 models, 1785 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -302,6 +302,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `createdAt`: Designer profiles › Created on
   - `updatedAt`: Designer profiles › Updated on
 - **DesignerRoster**: excluded. Programme administration (Ministry pages), not part of the data folders.
+- **DeviceOutboxReport**: excluded. How many recordings each phone or browser still holds: device telemetry for admins.
 - **DwAiLayer**
   - `id`: AI layers › AI layer ID
   - `designWorkshopId`: AI layers › Design workshop; AI layers › Design workshop ID
@@ -1366,7 +1367,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Field Repository
 
-99 models, 1222 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+100 models, 1231 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -1534,6 +1535,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 - **DataReportShare**: excluded. Share-link and visitor metadata, not report data.
 - **DataReportShareView**: excluded. Share-link and visitor metadata, not report data.
 - **DataSavedView**: excluded. Saved views of the data explorer.
+- **DeviceOutboxReport**: excluded. How many recordings each phone or browser still holds: device telemetry for admins.
 - **EmailMessage**: excluded. Outgoing e-mail queue.
 - **EntryComment**
   - `id`: Comments › Comment ID
