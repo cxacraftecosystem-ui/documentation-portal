@@ -6,6 +6,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import {
   GROUP,
+  INTERVIEW_API,
   INTERVIEW_SEED_MISSING,
   MEERA,
   S,
@@ -21,7 +22,10 @@ import {
   lineage,
   openSection,
   openSession,
+  raw,
   section,
+  seed,
+  signInAs,
   stackContext,
   uploadTake,
   type Theme
@@ -265,6 +269,31 @@ capture("ChangeSections", "change the sections of a take on two sections", async
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await partShot(page.locator("[data-section-takes='B']"), "ChangeSections", width, theme, "takes");
+});
+
+capture("PhonesHolding", "admin list of phones holding recordings", async (page, width, theme) => {
+  const install = `fid-${width}-${theme}-${Date.now().toString(36)}`;
+  const sent = await fetch(`${INTERVIEW_API}/api/questionnaire/sessions?limit=1`, {
+    headers: {
+      Authorization: `Bearer ${seed().tokens.other}`,
+      "X-App-Platform": "android",
+      "X-App-Version": "0.0.7",
+      "X-App-Version-Code": "27",
+      "X-Install-Id": install,
+      "X-Outbox-Pending": "4",
+      "X-Outbox-Failed": "1",
+      "X-Outbox-Oldest": "2026-11-12T08:00:00Z"
+    }
+  });
+  expect(sent.ok).toBe(true);
+  await signInAs(page.context(), "admin");
+  await expect.poll(async () => (await raw<{ items: { installId: string }[] }>("admin", "GET", "/admin/outbox-reports")).items.some((i) => i.installId === install), { timeout: 30_000 }).toBe(true);
+  await page.goto("/admin");
+  const section = page.locator("[data-phones-holding]");
+  await expect(section.locator(`[data-phone-row='${install}']`)).toBeVisible({ timeout: 30_000 });
+  await section.scrollIntoViewIfNeeded();
+  await shoot(page, "PhonesHolding", width, theme);
+  await partShot(section, "PhonesHolding", width, theme, "list");
 });
 
 capture("AnsweredBy", "who answered", async (page, width, theme) => {

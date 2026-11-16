@@ -13,3 +13,10 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 @router.get("/app-versions")
 async def app_versions_summary(days: int = Query(30, ge=1, le=365), _: Any = Depends(require_admin)) -> dict[str, Any]:
     return await app_versions.summary(days=days)
+
+
+@router.get("/outbox-reports")
+async def outbox_reports_holding(_: Any = Depends(require_admin)) -> dict[str, Any]:
+    from app.questionnaire import outbox_reports
+
+    return await outbox_reports.holding()

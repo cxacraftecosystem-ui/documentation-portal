@@ -512,6 +512,17 @@ export const questionnaireStrings = {
   attachSections: "Sections",
   changeSections: "Change sections",
   changeSectionsNamed: ({ name }: { name: string | number }): string => `Change sections for ${name}`,
+  phonesHoldingTitle: "Phones holding recordings",
+  phonesHoldingEmpty: "No phone is holding recordings.",
+  phonesHoldingError: "Couldn't load the phones holding recordings.",
+  phonesHoldingCapped: ({ count }: { count: string | number }): string => `Showing the ${count} that have waited longest.`,
+  holdingWaiting: ({ count }: { count: string | number }): string => `${count} waiting`,
+  holdingFailed: ({ count }: { count: string | number }): string => `${count} failed`,
+  holdingOldest: ({ age }: { age: string | number }): string => `Oldest waited ${age}`,
+  holdingReported: ({ when }: { when: string | number }): string => `Last report ${when}`,
+  ageMinutes: ({ count }: { count: string | number }): string => `${count} min`,
+  ageHours: ({ count }: { count: string | number }): string => `${count} h`,
+  ageDays: ({ count }: { count: string | number }): string => `${count} d`,
 } as const;
 
 export type QuestionnaireStringKey = keyof typeof questionnaireStrings;

@@ -25,6 +25,7 @@ from app.core.deps import PASSWORD_CHANGE_REQUIRED_HEADER
 from app.core.idempotency import IdempotencyMiddleware
 from app.core.security import verify_jwt_configuration
 from app.core.validation_errors import install_validation_handler
+from app.questionnaire.outbox_reports import OutboxReportMiddleware
 from app.release import live_release
 from app.services import aadhaar_fingerprint, usage_log
 from app.services.app_versions import AppVersionMiddleware
@@ -300,6 +301,7 @@ def create_app() -> FastAPI:
     app.add_middleware(usage_log.TimingMiddleware)
     app.add_middleware(IdempotencyMiddleware)
     app.add_middleware(AppVersionMiddleware)
+    app.add_middleware(OutboxReportMiddleware)
     app.add_middleware(UnhandledErrorMiddleware)
     app.add_middleware(
         CORSMiddleware,

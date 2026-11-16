@@ -747,6 +747,7 @@ export function questionnaireClient(fetchJson: JsonFetcher) {
         `${Q}/filters${buildQuery({ field: field ?? undefined, q: q || undefined, questionnaireId: questionnaireIds.length ? questionnaireIds.join(",") : undefined, limit })}`
       ),
     getSession: (id: string) => fetchJson<SessionDetail>(`${Q}/sessions/${encodeURIComponent(id)}`),
+    outboxReports: () => fetchJson<import("@/lib/questionnaire/outboxReport").HoldingList>(`/admin/outbox-reports`),
     patchSession: (id: string, body: SessionPatch) => fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}`, json("PATCH", body)),
     addParticipant: (id: string, artisanId: string, key = mintKey("part")) =>
       fetchJson<Session>(`${Q}/sessions/${encodeURIComponent(id)}/participants`, json("POST", { artisanId }, key)),

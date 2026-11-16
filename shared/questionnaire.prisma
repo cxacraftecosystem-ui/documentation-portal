@@ -411,3 +411,20 @@ model AppClientVersion {
   @@index([platform, versionCode])
   @@index([lastSeenAt])
 }
+
+model DeviceOutboxReport {
+  userId      String
+  installId   String
+  platform    String
+  appVersion  String?
+  pending     Int       @default(0)
+  failed      Int       @default(0)
+  oldestAt    DateTime?
+  reportedAt  DateTime  @default(now())
+  firstSeenAt DateTime  @default(now())
+
+  user User @relation("DeviceOutboxReportUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, installId])
+  @@index([pending, oldestAt])
+}

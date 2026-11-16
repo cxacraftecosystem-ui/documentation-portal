@@ -512,4 +512,15 @@
     <string name="q_attach_sections">Sections</string>
     <string name="q_change_sections">Change sections</string>
     <string name="q_change_sections_named">Change sections for %1$s</string>
+    <string name="q_phones_holding_title">Phones holding recordings</string>
+    <string name="q_phones_holding_empty">No phone is holding recordings.</string>
+    <string name="q_phones_holding_error">Couldn\'t load the phones holding recordings.</string>
+    <string name="q_phones_holding_capped">Showing the %1$s that have waited longest.</string>
+    <string name="q_holding_waiting">%1$s waiting</string>
+    <string name="q_holding_failed">%1$s failed</string>
+    <string name="q_holding_oldest">Oldest waited %1$s</string>
+    <string name="q_holding_reported">Last report %1$s</string>
+    <string name="q_age_minutes">%1$s min</string>
+    <string name="q_age_hours">%1$s h</string>
+    <string name="q_age_days">%1$s d</string>
 </resources>

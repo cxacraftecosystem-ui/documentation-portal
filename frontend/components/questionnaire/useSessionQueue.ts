@@ -5,6 +5,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { loadQuestionnaireConfig } from "@/components/questionnaire/useQuestionnaireConfig";
 import { questionnaireApi, type RecordBy, type Recording, type Session } from "@/lib/questionnaire/api";
+import { noteOutbox } from "@/lib/questionnaire/outboxReport";
 import {
   answerConflicts,
   claimUnits,
@@ -56,6 +57,7 @@ function getStore(): QueueStore {
 
 async function refresh() {
   const all = await getStore().load();
+  noteOutbox(all);
   emit({ units: unitsOwnedBy(all, owner), held: heldUnits(all, owner) });
 }
 

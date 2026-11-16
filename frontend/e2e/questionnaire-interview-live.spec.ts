@@ -6,6 +6,7 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import {
   GROUP,
+  INTERVIEW_API,
   INTERVIEW_SEED_MISSING,
   LALITA,
   MEERA,
@@ -21,6 +22,7 @@ import {
   lineage,
   openSection,
   openSession,
+  raw,
   section,
   seed,
   signInAs,
@@ -568,4 +570,58 @@ test("@qf:Q4 Change sections moves a whole-session take into sections, a stale v
   await expect(whole.locator("[data-whole-take]")).toHaveCount(1);
   await expect(whole.locator("[data-whole-take]")).toBeInViewport();
   expect((await as().getSession(session.id)).recordings[0].targets, "clearing every section moves it back to the whole session").toEqual([]);
+});
+
+test("@qf:Q6 every request says what this browser's outbox holds, and the admin list shows the phones holding recordings", async ({ page, browser }) => {
+  const session = await createSession({ recordBy: "SECTION" });
+  const file = audioFile(FILES, "Held-on-this-browser.wav", 1);
+  await openSession(page, session);
+  await openSection(page, "B");
+  const release = await holdUploads(page);
+  const { button } = await uploadThroughSheet(page, page.getByRole("button", { name: S.upload, exact: true }).first(), [file.path], S.uploadOneFile);
+  await button.click();
+  await expect(page.locator("[data-section-takes='B'] [data-take-upload='UPLOADING']")).toHaveCount(1, { timeout: 15_000 });
+  const reported = page.waitForRequest((r) => new URL(r.url()).pathname.startsWith("/api/") && r.headers()["x-outbox-pending"] === "1", { timeout: 60_000 });
+  await page.getByRole("button", { name: S.review }).first().click();
+  const headers = (await reported).headers();
+  expect(headers["x-install-id"]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  expect(headers["x-outbox-failed"]).toBe("0");
+  expect(Number.isNaN(Date.parse(headers["x-outbox-oldest"] ?? ""))).toBe(false);
+  release();
+
+  const install = `e2e-${Date.now().toString(36)}-phone`;
+  const sent = await fetch(`${INTERVIEW_API}/api/questionnaire/sessions?limit=1`, {
+    headers: {
+      Authorization: `Bearer ${seed().tokens.other}`,
+      "X-App-Platform": "android",
+      "X-App-Version": "0.0.7",
+      "X-App-Version-Code": "27",
+      "X-Install-Id": install,
+      "X-Outbox-Pending": "4",
+      "X-Outbox-Failed": "1",
+      "X-Outbox-Oldest": "2026-11-10T08:00:00Z"
+    }
+  });
+  expect(sent.ok).toBe(true);
+  type Holding = { items: { installId: string; pending: number; failed: number; platform: string; oldestAt: string | null; name: string }[] };
+  await expect
+    .poll(async () => (await raw<Holding>("admin", "GET", "/admin/outbox-reports")).items.find((i) => i.installId === install) ?? null, { timeout: 30_000 })
+    .toMatchObject({ pending: 4, failed: 1, platform: "android", oldestAt: "2026-11-10T08:00:00Z", name: seed().users.other.name });
+  const listed = (await raw<Holding>("admin", "GET", "/admin/outbox-reports")).items.map((i) => i.oldestAt ?? "");
+  expect(listed, "oldest first").toEqual([...listed].sort((a, b) => (a && b ? a.localeCompare(b) : a ? -1 : 1)));
+
+  const admin = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  try {
+    await signInAs(admin, "admin");
+    const adminPage = await admin.newPage();
+    await adminPage.goto("/admin");
+    const row = adminPage.locator(`[data-phone-row='${install}']`);
+    await expect(adminPage.getByRole("heading", { name: S.phonesHoldingTitle })).toBeVisible({ timeout: 30_000 });
+    await expect(row).toContainText(S.holdingWaiting({ count: 4 }));
+    await expect(row).toContainText(S.holdingFailed({ count: 1 }));
+    await expect(row).toContainText(seed().users.other.name);
+    await expect(row).toContainText("Android");
+  } finally {
+    await admin.close();
+  }
 });

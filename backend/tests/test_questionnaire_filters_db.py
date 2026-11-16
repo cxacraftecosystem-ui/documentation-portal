@@ -418,6 +418,35 @@ def test_a_whole_session_take_can_cover_several_sections_and_counts_for_all_thei
     _run(monkeypatch, body)
 
 
+def test_the_latest_outbox_report_per_install_is_kept_and_listed_oldest_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime
+
+    from app.questionnaire import outbox_reports
+
+    async def body(c: Any, ids: SimpleNamespace) -> None:
+        def report(install: str, pending: int, failed: int, oldest: str | None) -> dict[str, Any]:
+            return {"installId": f"{install}-{ids.tag}", "pending": pending, "failed": failed,
+                    "oldestAt": datetime.fromisoformat(oldest).replace(tzinfo=UTC) if oldest else None}
+
+        await outbox_reports.record(ids.lead.id, report("phone", 3, 1, "2026-11-15T08:00:00"), "android", "0.0.7", client=c)
+        await outbox_reports.record(ids.lead.id, report("phone", 1, 0, "2026-11-16T08:00:00"), "android", "0.0.7", client=c)
+        held = await c.query_raw('SELECT "pending", "failed" FROM "DeviceOutboxReport" WHERE "userId" = $1', ids.lead.id)
+        assert [(r["pending"], r["failed"]) for r in held] == [(3, 1)], "a second write inside the minute is not kept"
+        await c.execute_raw('UPDATE "DeviceOutboxReport" SET "reportedAt" = "reportedAt" - interval \'2 minutes\' WHERE "userId" = $1', ids.lead.id)
+        await outbox_reports.record(ids.lead.id, report("phone", 1, 0, "2026-11-16T08:00:00"), "android", "0.0.8", client=c)
+        held = await c.query_raw('SELECT "pending", "appVersion" FROM "DeviceOutboxReport" WHERE "userId" = $1', ids.lead.id)
+        assert [(r["pending"], r["appVersion"]) for r in held] == [(1, "0.0.8")], "the latest report replaces the last one"
+        await outbox_reports.record(ids.lead.id, report("browser", 0, 0, None), "web", "web-1", client=c)
+        await outbox_reports.record(ids.other.id, report("tablet", 2, 2, "2026-11-10T08:00:00"), "android", "0.0.6", client=c)
+        listed = await outbox_reports.holding(client=c)
+        mine = [i for i in listed["items"] if i["userId"] in (ids.lead.id, ids.other.id)]
+        assert [i["installId"] for i in mine] == [f"tablet-{ids.tag}", f"phone-{ids.tag}"], "pending > 0 only, oldest first"
+        assert mine[0]["name"] == ids.other.name and mine[0]["platform"] == "android" and mine[0]["failed"] == 2
+        assert mine[0]["oldestAt"] == "2026-11-10T08:00:00Z" and mine[0]["reportedAt"]
+
+    _run(monkeypatch, body)
+
+
 def test_the_forms_library_and_the_filter_options(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.questionnaire import chips, filters
 

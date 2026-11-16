@@ -515,6 +515,17 @@
     "takeChangedReloaded": "This take changed on another device and has been reloaded. Choose again.",
     "attachSections": "Sections",
     "changeSections": "Change sections",
-    "changeSectionsNamed": "Change sections for {name}"
+    "changeSectionsNamed": "Change sections for {name}",
+    "phonesHoldingTitle": "Phones holding recordings",
+    "phonesHoldingEmpty": "No phone is holding recordings.",
+    "phonesHoldingError": "Couldn't load the phones holding recordings.",
+    "phonesHoldingCapped": "Showing the {count} that have waited longest.",
+    "holdingWaiting": "{count} waiting",
+    "holdingFailed": "{count} failed",
+    "holdingOldest": "Oldest waited {age}",
+    "holdingReported": "Last report {when}",
+    "ageMinutes": "{count} min",
+    "ageHours": "{count} h",
+    "ageDays": "{count} d"
   }
 }
