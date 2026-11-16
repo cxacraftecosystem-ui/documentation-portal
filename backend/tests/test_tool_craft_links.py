@@ -991,8 +991,10 @@ def test_the_assigned_artisans_endpoint_has_a_total_order():
     import inspect
 
     from app.api.routes import tools
+    from app.services import tool_scope
 
-    source = inspect.getsource(tools._assigned_artisans)
+    assert "tool_artisans_head_first(" in inspect.getsource(tools._assigned_artisans)
+    source = inspect.getsource(tool_scope.tool_artisans_head_first)
     assert 'order=[{"createdAt": "asc"}, {"id": "asc"}]' in source
 
 
