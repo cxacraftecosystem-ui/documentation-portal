@@ -1262,10 +1262,13 @@ class FieldRepository(
 
     suspend fun tools(): List<ToolDetailDto> = walkPages(EVERY_PAGE_BUDGET) { api.tools(page = it, pageSize = 100) }.items
 
-    suspend fun toolArtisans(toolId: String): List<ArtisanDto> = api.toolArtisans(toolId)
+    suspend fun toolArtisans(toolId: String): List<ArtisanDto> = withToolHead(toolId, api.toolArtisans(toolId))
 
     suspend fun assignToolArtisans(toolId: String, artisanIds: List<String>): List<ArtisanDto> =
-        api.assignToolArtisans(toolId, ToolArtisanAssignRequest(artisanIds))
+        withToolHead(toolId, api.assignToolArtisans(toolId, ToolArtisanAssignRequest(artisanIds)))
+
+    private suspend fun withToolHead(toolId: String, linked: List<ArtisanDto>): List<ArtisanDto> =
+        toolArtisansHeadFirst(runCatching { api.tool(toolId) }.getOrNull(), linked)
 
     suspend fun unassignToolArtisan(toolId: String, artisanId: String) = api.unassignToolArtisan(toolId, artisanId)
 
