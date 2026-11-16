@@ -8595,7 +8595,7 @@ private fun ToolAssignScreen(
             HorizontalDivider()
             Text("Currently assigned to", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
             if (assigned.isEmpty()) {
-                Text("No other artisans yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
+                Text("Not assigned to any artisan yet.", color = Muted, style = MaterialTheme.typography.bodySmall)
             } else {
                 assigned.forEach { artisan ->
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
