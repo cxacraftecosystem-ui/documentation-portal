@@ -47,7 +47,9 @@ class CoverSectionsUiTest {
     )
 
     private fun pick(vararg labels: String) {
-        compose.onNode(hasContentDescription("Covers sections", substring = true) and hasClickAction()).performScrollTo().performClick()
+        val trigger = compose.onNode(hasContentDescription("Covers sections", substring = true) and hasClickAction())
+        runCatching { trigger.performScrollTo() }
+        trigger.performClick()
         compose.waitForIdle()
         labels.forEach { compose.onNodeWithText(it).performClick() }
         compose.onNodeWithText("Done", substring = true).performClick()
