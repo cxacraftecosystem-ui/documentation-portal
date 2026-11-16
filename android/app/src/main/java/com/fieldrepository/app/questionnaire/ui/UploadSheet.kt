@@ -130,7 +130,6 @@ fun CoversSectionsField(sections: List<SectionChoice>, chosen: Set<String>, modi
             label = QuestionnaireCopy.t("coversSections"),
             options = sections.map { it.option },
             selected = chosen,
-            searchable = true,
             onSelectedChange = { picked -> onChange(sections.map { it.id }.filter { it in picked }.toSet()) }
         )
         Text(SectionCover.line(chosen, sections), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.field.muted, modifier = Modifier.testTag("questionnaire.covers.line"))
