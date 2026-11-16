@@ -32,7 +32,7 @@ The JSON, the aliases file, the service, the taxonomy routes, both scripts, the 
 
 ## The API
 
-All routes need a signed-in user.
+All routes need a signed-in user, except the peer craft feed below.
 
 - `GET /crafts/catalogue` is the one list every picker reads: ACTIVE crafts in category, sub-category and serial order, with the categories and their sub-categories. It sends an `ETag`; a matching `If-None-Match`, strong or weak (`W/`), answers 304. `?includeInactive=true` (content admins) adds LEGACY and MERGED rows with `status`, `mergedIntoId` and `referenceCount`.
 - `GET /crafts` keeps its old shape for the admin table and old clients, with filters `categoryId`, `subCategoryId`, `giStatus`, `state` and `status` (default `ACTIVE`), pages of up to 500, and each row's `slug`, `categoryId`, `subCategoryId`, `sourceSerial`, states, `giStatus`, `isCatchAll`, `status` and `referenceCount`.
@@ -105,6 +105,17 @@ It never undoes an admin's decision:
 - The public census and the dashboard count ACTIVE crafts.
 - The search index's `craftCodes` holds each listed craft's slug beside its shared code.
 
+## The peer craft feed
+
+`GET /api/cross-portal/peer/crafts` lets KalaVigyan read every craft this portal holds, so it keeps the crafts either team added and not only the 455 on the list. The route is `api/routes/cross_portal_crafts.py` and the answer is built by `services/craft_feed.py`, which is the same in both repositories. The contract is `science-behind-craft/docs/contracts/portal-craft-feed.md`.
+
+- It is off until `CROSS_PORTAL_CRAFT_FEED_ENABLED` is true and `CROSS_PORTAL_TOKEN` has 32 or more characters (see [ENVIRONMENT.md](ENVIRONMENT.md)). Off, it answers 404. It needs neither the identity switch nor the Aadhaar key, because it carries no personal data.
+- The caller sends `Authorization: Bearer <CROSS_PORTAL_TOKEN>` and an `X-Cross-Portal-Nonce` of 16 to 128 characters. A wrong bearer or nonce is 401. The answer is signed in `X-Cross-Portal-Signature` over `GET`, `/cross-portal/peer/crafts`, the nonce and the body.
+- One answer, no paging, `schemaVersion` 1: `portal` (`DESIGNER` from the Designer Repository, `FIELD_REPOSITORY` from the Field Repository), `generatedAt`, every category with its sub-categories, every craft whatever its status, every `CraftCode` and every `CraftSpelling`.
+- A craft carries `id`, `slug`, `name`, `localName`, `subCategoryId`, `stateOfOrigin`, `stateOfPractice`, `giStatus`, `isCatchAll`, `craftCode`, `status`, `mergedIntoId`, `aliases` and `updatedAt`. `aliases` are the stored `extraMetadata.aliases`, not normalised. Times are UTC and end in `Z`.
+- Every reference resolves inside the answer. A `MERGED` craft whose target is gone, or is itself, is sent as `LEGACY` with no target. A sub-category or code that is not in the answer is sent as null, and a spelling whose code is not in the answer is left out.
+- Each call writes one `CrossPortalAccessLog` row: action `CRAFT_FEED`, outcome `OK`, the caller's `X-Cross-Portal-Requested-By` and the number of crafts sent.
+
 ## How this document is kept true
 
 | Claim | Kept true by |
@@ -113,3 +124,4 @@ It never undoes an admin's decision:
 | The migration is what the generator writes, and seeds every row of the file | `test_craft_master_migration.py` |
 | The catalogue's order and ETag, craft writes and their refusals, merge (every kind of reference), adopt, the taxonomy routes, the matcher, the review queue | `test_craft_catalogue_api.py` |
 | The dry run equals the curated table, and applying it leaves nothing to move; the seed loader keeps every admin decision | `test_map_crafts.py` |
+| The peer craft feed: its switch, bearer, nonce and signature, every status, references that resolve, raw aliases and the access log | `test_cross_portal_craft_feed.py` |

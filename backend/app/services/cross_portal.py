@@ -209,3 +209,9 @@ def search_active(settings: Any) -> bool:
     if not _secret_ok(aadhaar_key(settings)):
         return False
     return bool(peer_api_url(settings))
+
+
+def craft_feed_active(settings: Any) -> bool:
+    if not getattr(settings, "cross_portal_craft_feed_enabled", False):
+        return False
+    return _secret_ok(getattr(settings, "cross_portal_token", None))

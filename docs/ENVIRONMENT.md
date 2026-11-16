@@ -318,6 +318,19 @@ answers 404. This portal's own coverage map (`/map?view=coverage`) needs no flag
 |---|---|---|---|---|
 | `CROSS_PORTAL_COVERAGE_ENABLED` | No | **`false`** | No | The switch. Also needs `CROSS_PORTAL_TOKEN` (above), the same value as on the designer portal. Set it in the GitHub Actions secrets **and** the box `.env`. |
 
+### Cross-portal craft feed for KalaVigyan — shipped OFF
+
+KalaVigyan reads every craft this portal holds from `GET /api/cross-portal/peer/crafts`: ACTIVE,
+LEGACY and MERGED crafts, the categories and sub-categories, the shared codes and the spellings. The
+call carries the shared bearer token and a nonce, the answer is signed, and each call is written to
+`CrossPortalAccessLog` as `CRAFT_FEED`. The feed holds no personal data, so it needs neither
+`CROSS_PORTAL_IDENTITY_ENABLED` nor `AADHAAR_FINGERPRINT_KEY`. Off, or the token missing or shorter
+than 32 characters: the route answers 404. What it sends: [CRAFTS.md](CRAFTS.md#the-peer-craft-feed).
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `CROSS_PORTAL_CRAFT_FEED_ENABLED` | No | **`false`** | No | The switch. Also needs `CROSS_PORTAL_TOKEN` (above), the value KalaVigyan holds. Set it on BOTH portals; the designer portal has the same switch. Deployed from the Actions **variable** of the same name by the "Pin the craft feed switch" step (`true`/`false`; unset keeps the box's value). |
+
 ### Duplicate artisans
 
 The server scores every new or edited artisan against the register (`app/services/artisan_duplicates.py`)
