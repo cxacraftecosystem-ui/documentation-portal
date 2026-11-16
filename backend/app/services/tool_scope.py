@@ -55,7 +55,7 @@ def _artisan_workshops(artisan: Any) -> Iterator[Any]:
             yield workshop
 
 
-def tool_artisan_names(tool: Any) -> str | None:
+def tool_artisan_name_list(tool: Any) -> list[str]:
     names: list[str] = []
     primary_id = getattr(tool, "artisanId", None)
     links = getattr(tool, "artisanLinks", None) or []
@@ -68,7 +68,52 @@ def tool_artisan_names(tool: Any) -> str | None:
         name = (raw or "").strip()
         if name and name not in names:
             names.append(name)
-    return ", ".join(names) or None
+    return names
+
+
+def tool_artisan_names(tool: Any) -> str | None:
+    return ", ".join(tool_artisan_name_list(tool)) or None
+
+
+def _link_order(head: Any, link: Any) -> tuple[int, str, str]:
+    artisan_id = link.get("artisanId") if isinstance(link, dict) else getattr(link, "artisanId", None)
+    created = link.get("createdAt") if isinstance(link, dict) else getattr(link, "createdAt", None)
+    link_id = link.get("id") if isinstance(link, dict) else getattr(link, "id", None)
+    return (0 if head and artisan_id == head else 1, str(created or ""), str(link_id or ""))
+
+
+def head_first_links(tools: Iterable[Any]) -> None:
+    for tool in tools:
+        if tool is None:
+            continue
+        own = isinstance(tool, dict)
+        links = tool.get("artisanLinks") if own else getattr(tool, "artisanLinks", None)
+        if not links:
+            continue
+        head = tool.get("artisanId") if own else getattr(tool, "artisanId", None)
+        ordered = sorted(links, key=lambda link: _link_order(head, link))
+        if own:
+            tool["artisanLinks"] = ordered
+        else:
+            tool.artisanLinks = ordered
+
+
+async def tool_artisans_head_first(tool_id: str) -> list[tuple[Any, bool]]:
+    tool = await db.tooldocumentation.find_unique(where={"id": tool_id}, include={"artisan": True})
+    links = await db.toolartisan.find_many(
+        where={"toolId": tool_id},
+        include={"artisan": True},
+        order=[{"createdAt": "asc"}, {"id": "asc"}],
+    )
+    head = getattr(tool, "artisan", None)
+    out: list[tuple[Any, bool]] = []
+    seen: set[str] = set()
+    for artisan in [head, *(link.artisan for link in links)]:
+        if artisan is None or artisan.id in seen:
+            continue
+        seen.add(artisan.id)
+        out.append((artisan, head is not None and artisan.id == head.id))
+    return out
 
 
 def tool_workshop_titles(tool: Any) -> str | None:
