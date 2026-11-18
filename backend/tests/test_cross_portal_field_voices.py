@@ -181,9 +181,10 @@ async def _take(world: SimpleNamespace, key: str, *, subjects: list[str], sectio
     )
     if section or question:
         await _x(
-            'INSERT INTO "QuestionnaireRecordingTarget" ("recordingId", "targetKey", "sectionId", "askedQuestionId") '
-            "VALUES ($1, $2, $3, $4)",
-            rid, f"T:{question or section}", section, question,
+            'INSERT INTO "QuestionnaireRecordingTarget" '
+            '("recordingId", "targetKey", "sectionId", "questionLineageId", "askedQuestionId") '
+            "VALUES ($1, $2, $3, $4, $5)",
+            rid, f"Q:{question}" if question else f"S:{section}", None if question else section, question, question,
         )
     for artisan in subjects:
         await _x(
