@@ -16,18 +16,18 @@ API lags the tree by however many commits have not been deployed; see
 
 | | Count |
 |---|---|
-| Prisma models | **100** |
+| Prisma models | **103** |
 | Prisma enums | **42** |
-| `@@index` declarations | 195 |
+| `@@index` declarations | 197 |
 | `@@unique` declarations | 38 |
 
-Models: `User`, `PasswordResetToken`, `PasswordResetRequest`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `AppClientVersion`, `DeviceOutboxReport`, `CraftCategory`, `CraftSubCategory`, `Craft`, `CraftCode`, `CraftSpelling`, `ArtisanSharingConsent`, `CrossPortalArtisanLink`, `ArtisanCard`, `ArtisanCardEvent`, `CrossPortalAccessLog`, `GeoAlias`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `TranscriptInsight`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireInterviewResearcher`, `QuestionnaireRecording`, `QuestionnaireRecordingTarget`, `QuestionnaireRecordingSubject`, `QuestionnaireRecordingEvent`, `QuestionnaireAnswer`, `QuestionnaireAnswerRevision`, `QuestionnaireTakeDraft`, `QuestionnaireRespondent`, `QuestionnaireRecordingRespondent`, `QuestionnaireBinding`, `QuestionnaireTypeDefault`, `MediaUploadIntent`, `Consent`, `QuestionnaireResponse`, `QuestionnaireAnswerDraft`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `ArtisanMerge`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`, `TwoFactorChallenge`, `IdempotencyKey`, `Notification`, `WeeklyDigest`, `SearchDocument`, `SearchIndexQueue`, `ArtisanDuplicateCandidate`, `SttProviderState`, `SttUsage`, `SttBudget`, `TranscriptionChunk`, `TranscriptCache`, `RecordingConsent`, `TranscriptVersion`, `TranscriptTurn`, `TranscriptTurnEdit`, `TranscriptSpeaker`, `TranscriptSpend`, `PaidAiSpend`, `TranscriptGlossaryTerm`, `TranscriptGlossarySighting`, `TranscriptDraftCitation`, `UsageEvent`, `DataReportPreference`, `DataFolderVisit`, `DataSavedView`, `DataReportShare`, `DataReportShareView`, `DataReportSchedule`, `MediaWaveform`, `DataBundle`.
+Models: `User`, `PasswordResetToken`, `PasswordResetRequest`, `AccessRoster`, `AssignedTask`, `Feedback`, `UserPreference`, `AppRelease`, `AppClientVersion`, `DeviceOutboxReport`, `CraftCategory`, `CraftSubCategory`, `Craft`, `CraftCode`, `CraftSpelling`, `ArtisanSharingConsent`, `CrossPortalArtisanLink`, `ArtisanCard`, `ArtisanCardEvent`, `CrossPortalAccessLog`, `GeoAlias`, `Location`, `Artisan`, `Workshop`, `WorkshopArtisan`, `WorkshopCraft`, `ProductDocumentation`, `ToolDocumentation`, `ToolArtisan`, `ToolCraft`, `MediaFile`, `TranscriptInsight`, `MediaProcessingJob`, `Questionnaire`, `QuestionnaireSection`, `QuestionnaireSectionStatus`, `QuestionnaireQuestion`, `QuestionnaireInterview`, `QuestionnaireInterviewArtisan`, `QuestionnaireInterviewResearcher`, `QuestionnaireRecording`, `QuestionnaireRecordingTarget`, `QuestionnaireRecordingSubject`, `QuestionnaireRecordingEvent`, `QuestionnaireAnswer`, `QuestionnaireAnswerRevision`, `QuestionnaireTakeDraft`, `QuestionnaireRespondent`, `QuestionnaireRecordingRespondent`, `QuestionnaireBinding`, `QuestionnaireTypeDefault`, `MediaUploadIntent`, `Consent`, `QuestionnaireResponse`, `QuestionnaireAnswerDraft`, `Process`, `ProcessStep`, `ReviewLog`, `AppSetting`, `ArtisanMerge`, `WorkshopAssignment`, `ManagedSecret`, `SecretTestResult`, `DataAccessGrant`, `DataAccessScopeItem`, `EntryComment`, `RecordRevision`, `UserAiCredential`, `EmailMessage`, `TwoFactorChallenge`, `IdempotencyKey`, `Notification`, `WeeklyDigest`, `SearchDocument`, `SearchIndexQueue`, `ArtisanDuplicateCandidate`, `SttProviderState`, `SttUsage`, `SttBudget`, `TranscriptionChunk`, `TranscriptCache`, `RecordingConsent`, `TranscriptVersion`, `TranscriptTurn`, `TranscriptTurnEdit`, `TranscriptSpeaker`, `TranscriptSpend`, `PaidAiSpend`, `TranscriptGlossaryTerm`, `TranscriptGlossarySighting`, `TranscriptDraftCitation`, `UsageEvent`, `DataReportPreference`, `DataFolderVisit`, `DataSavedView`, `DataReportShare`, `DataReportShareView`, `DataReportSchedule`, `MediaWaveform`, `DataBundle`, `FieldVoiceItem`, `FieldVoiceRefresh`, `FieldVoiceCopyRelease`.
 
 Enums: `UserRole`, `AuthProvider`, `AccessStatus`, `RecordStatus`, `WorkshopType`, `MediaType`, `ProductType`, `MarketDemand`, `MakerType`, `TraditionType`, `ReviewRecordType`, `MediaProcessingJobType`, `ConsentState`, `ConsentSubjectType`, `ConsentPurpose`, `ConsentBasis`, `SessionState`, `SessionPurpose`, `SessionOrigin`, `ResearcherRole`, `SubjectRole`, `RepeatReason`, `TakeFlag`, `CapturedAtSource`, `RecordingFiling`, `RecordingProvenance`, `AnswerOrigin`, `AnswerAttribution`, `SectionStatus`, `RespondentKind`, `SessionSource`, `RecordBy`, `MediaProcessingJobStatus`, `ProcessStepType`, `DataAccessTier`, `DataAccessStatus`, `CredentialLinkPurpose`, `GiStatus`, `CraftStatus`, `DuplicateKind`, `DuplicateStatus`, `DuplicateSource`.
 
 ## API surface
 
-**384 operations** in the working tree — 183 GET, 126 POST, 30 DELETE,
+**389 operations** in the working tree — 187 GET, 127 POST, 30 DELETE,
 22 PATCH, 23 PUT. 2 of them (`/health`, `/health/ready`) are declared
 on the app rather than on a router; the rest are spread across `backend/app/api/routes/`:
 
@@ -71,6 +71,7 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `recording_consent.py` | 4 |
 | `transcript_insights.py` | 4 |
 | `app_release.py` | 3 |
+| `cross_portal_field_voices.py` | 3 |
 | `data_report.py` | 3 |
 | `export.py` | 3 |
 | `feedback.py` | 3 |
@@ -78,6 +79,7 @@ on the app rather than on a router; the rest are spread across `backend/app/api/
 | `search.py` | 3 |
 | `app_versions.py` | 2 |
 | `cross_portal_search.py` | 2 |
+| `field_voices_admin.py` | 2 |
 | `map_points.py` | 2 |
 | `transcript_data.py` | 2 |
 | `completeness.py` | 1 |
@@ -129,8 +131,8 @@ no key is skipped wherever it sits.
 
 | Surface | Files | Cases | Runner |
 |---|---|---|---|
-| Backend unit (`backend/tests/`) | 289 | 3235 `def test_` | `python -m pytest -q` from `backend/` |
-| Web end-to-end (`frontend/e2e/`) | 193 | 1931 `test(` | Playwright, `frontend/playwright.config.ts` |
+| Backend unit (`backend/tests/`) | 292 | 3324 `def test_` | `python -m pytest -q` from `backend/` |
+| Web end-to-end (`frontend/e2e/`) | 194 | 1937 `test(` | Playwright, `frontend/playwright.config.ts` |
 | Android unit (`android/app/src/test/`) | 248 | 1849 `@Test` | `./gradlew :app:testDebugUnitTest` from `android/` |
 | Android instrumented | 73 | 325 `@Test` | not run in CI |
 
@@ -142,11 +144,11 @@ parametrised cases expand. Neither the backend suite nor the e2e suite is a CI g
 
 | Area | Tracked files | Tracked lines | Tree files | Tree lines |
 |---|---|---|---|---|
-| `backend/app` | 361 | 94,495 | 361 | 94,495 |
-| `frontend/app` | 95 | 17,343 | 95 | 17,343 |
-| `frontend/components` | 372 | 74,676 | 372 | 74,676 |
-| `frontend/lib` | 216 | 41,470 | 216 | 41,470 |
-| `android/app/src/main/java` | 354 | 109,996 | 354 | 109,996 |
+| `backend/app` | 379 | 98,481 | 379 | 98,481 |
+| `frontend/app` | 95 | 17,352 | 95 | 17,352 |
+| `frontend/components` | 373 | 74,901 | 373 | 74,901 |
+| `frontend/lib` | 217 | 41,553 | 217 | 41,553 |
+| `android/app/src/main/java` | 354 | 109,998 | 354 | 109,998 |
 
 Two columns because the two numbers get quoted interchangeably and disagree by however much work is
 uncommitted. **Tracked** is `git ls-files`, which is the figure to use in a write-up — it is
