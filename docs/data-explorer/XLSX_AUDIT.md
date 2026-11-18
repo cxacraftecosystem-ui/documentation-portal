@@ -6,7 +6,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Design Prototype Workshop
 
-143 models, 1785 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+146 models, 1804 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -488,6 +488,28 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `updatedAt`: Comments › Updated on
 - **Feedback**: excluded. Feedback about the app itself, kept on the Feedback page.
 - **FeedbackReport**: excluded. Bug reports about the app itself, kept on the Feedback page.
+- **FieldVoiceCopyRelease**
+  - `copyKey`: excluded. missing
+  - `queuedAt`: excluded. missing
+  - `attempts`: excluded. missing
+- **FieldVoiceItem**
+  - `stream`: excluded. missing
+  - `itemId`: excluded. missing
+  - `state`: excluded. missing
+  - `revision`: excluded. missing
+  - `reason`: excluded. missing
+  - `successorId`: excluded. missing
+  - `payload`: excluded. missing
+  - `copyKey`: excluded. missing
+  - `copyOf`: excluded. missing
+  - `subjects`: excluded. missing
+  - `updatedAt`: excluded. missing
+  - `firstListedAt`: excluded. missing
+- **FieldVoiceRefresh**
+  - `id`: excluded. missing
+  - `startedAt`: excluded. missing
+  - `finishedAt`: excluded. missing
+  - `counts`: excluded. missing
 - **GeoAlias**: excluded. Spelling aliases for state and district names (reference data).
 - **IdempotencyKey**: excluded. Request de-duplication cache.
 - **Location**
@@ -1367,7 +1389,7 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
 
 ## Field Repository
 
-100 models, 1231 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
+103 models, 1250 fields. Generated from `backend/prisma/schema.prisma` by `python scripts/sync_data_report.py --audit`; `backend/tests/test_report_coverage.py` fails when this file or the mapping falls behind.
 
 ### Models and fields
 
@@ -1546,6 +1568,28 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `createdAt`: Comments › Created on
   - `updatedAt`: Comments › Updated on
 - **Feedback**: excluded. Feedback about the app itself, kept on the Feedback page.
+- **FieldVoiceCopyRelease**
+  - `copyKey`: excluded. missing
+  - `queuedAt`: excluded. missing
+  - `attempts`: excluded. missing
+- **FieldVoiceItem**
+  - `stream`: excluded. missing
+  - `itemId`: excluded. missing
+  - `state`: excluded. missing
+  - `revision`: excluded. missing
+  - `reason`: excluded. missing
+  - `successorId`: excluded. missing
+  - `payload`: excluded. missing
+  - `copyKey`: excluded. missing
+  - `copyOf`: excluded. missing
+  - `subjects`: excluded. missing
+  - `updatedAt`: excluded. missing
+  - `firstListedAt`: excluded. missing
+- **FieldVoiceRefresh**
+  - `id`: excluded. missing
+  - `startedAt`: excluded. missing
+  - `finishedAt`: excluded. missing
+  - `counts`: excluded. missing
 - **GeoAlias**: excluded. Spelling aliases for state and district names (reference data).
 - **IdempotencyKey**: excluded. Request de-duplication cache.
 - **Location**
