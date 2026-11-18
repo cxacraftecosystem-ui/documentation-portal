@@ -53,6 +53,22 @@ async def require_craft_feed_peer(
     return _admit(request, authorization, x_cross_portal_nonce, cross_portal.craft_feed_active)
 
 
+async def require_field_voices_peer(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_cross_portal_nonce: str | None = Header(default=None),
+) -> Any:
+    return _admit(request, authorization, x_cross_portal_nonce, cross_portal.field_voices_active)
+
+
+async def require_field_voices_images_peer(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_cross_portal_nonce: str | None = Header(default=None),
+) -> Any:
+    return _admit(request, authorization, x_cross_portal_nonce, cross_portal.field_voices_images_active)
+
+
 def requested_by(request: Request) -> str | None:
     return (request.headers.get(cross_portal.REQUESTED_BY_HEADER) or "").strip()[:64] or None
 

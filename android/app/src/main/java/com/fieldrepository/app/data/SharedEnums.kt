@@ -68,7 +68,8 @@ enum class ConsentSubjectType(val wire: String) {
 enum class ConsentPurpose(val wire: String) {
     EXTERNAL_PROCESSING("EXTERNAL_PROCESSING"),
     CROSS_PORTAL_SHARING("CROSS_PORTAL_SHARING"),
-    USAGE_ANALYTICS("USAGE_ANALYTICS");
+    USAGE_ANALYTICS("USAGE_ANALYTICS"),
+    PUBLICATION("PUBLICATION");
 
     companion object {
         fun fromWire(value: String?): ConsentPurpose? = entries.firstOrNull { it.wire == value }

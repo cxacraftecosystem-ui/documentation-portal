@@ -1049,6 +1049,17 @@ jobs:
           fi
           exit "$status"
 
+      - name: The field voices manifest and schema fragment, in both portals
+        run: |
+          set -uo pipefail
+          status=0
+          python -m pytest -rs tests/test_field_voices_parity.py | tee field-voices-parity.log || status=1
+          if grep -q '^SKIPPED' field-voices-parity.log; then
+            echo "::error::a field voices parity check skipped; every one must run against the other portal here."
+            exit 1
+          fi
+          exit "$status"
+
   deploy-scripts:
     name: Deploy scripts
     runs-on: ubuntu-26.04
@@ -1191,6 +1202,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/sync_data_report.py --check
+          python3 scripts/sync_field_voices.py --check
 
   comment-stripper:
     name: Comment stripper

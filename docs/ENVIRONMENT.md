@@ -331,6 +331,22 @@ than 32 characters: the route answers 404. What it sends: [CRAFTS.md](CRAFTS.md#
 |---|---|---|---|---|
 | `CROSS_PORTAL_CRAFT_FEED_ENABLED` | No | **`false`** | No | The switch. Also needs `CROSS_PORTAL_TOKEN` (above), the value KalaVigyan holds. Set it on BOTH portals; the designer portal has the same switch. Deployed from the Actions **variable** of the same name by the "Pin the craft feed switch" step (`true`/`false`; unset keeps the box's value). |
 
+### Field voices for KalaVigyan — shipped OFF
+
+KalaVigyan reads this portal's transcripts and craft images from three signed peer routes,
+`GET /api/cross-portal/peer/field-voices`, `.../field-voices/transcripts` and `.../field-voices/images`,
+with the same bearer token, nonce and signature as the craft feed. Each call writes one
+`CrossPortalAccessLog` row (`FIELD_VOICES_STATE`, `FIELD_VOICES_TRANSCRIPTS` or `FIELD_VOICES_IMAGES`).
+While the switch is on, the queue worker refreshes the `FieldVoiceItem` ledger every 15 minutes and
+stores metadata-free image copies under `field-voices/<sha256>.<ext>` in the media bucket. Off, or
+the token missing or shorter than 32 characters: the routes answer 404 and the worker does nothing.
+What leaves and how an admin withdraws it: [FIELD_VOICES.md](FIELD_VOICES.md).
+
+| Variable | Required | Default | Secret | Notes |
+|---|---|---|---|---|
+| `CROSS_PORTAL_FIELD_VOICES_ENABLED` | No | **`false`** | No | The switch. Also needs `CROSS_PORTAL_TOKEN` (above); not the identity switch or the Aadhaar key. Set it on BOTH portals; the designer portal has the same switch. Deployed from the Actions **variable** of the same name by the "Pin the field voices settings" step (`true`/`false`; unset keeps the box's value). |
+| `FIELD_VOICES_RIGHTS_HOLDER` | No | — | No | The rights holder named on every image, at most 200 characters, with no quote, backslash, dollar or backtick. Unset: the images route answers 404 and no copies are made. Deployed from the Actions **variable** of the same name by the same step (unset changes nothing). |
+
 ### Duplicate artisans
 
 The server scores every new or edited artisan against the register (`app/services/artisan_duplicates.py`)

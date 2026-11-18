@@ -21,6 +21,7 @@ import { ArtisanQuestionnairePanel } from "@/components/ArtisanQuestionnairePane
 import { useAuth } from "@/components/AuthProvider";
 import { CollabPanel } from "@/components/CollabPanel";
 import { ArtisanDuplicateBanner } from "@/components/duplicates/ArtisanDuplicateBanner";
+import { FieldVoicesPanel } from "@/components/fieldVoices/FieldVoicesPanel";
 import { ExistingMedia } from "@/components/media/ExistingMedia";
 import { PageHeader } from "@/components/PageHeader";
 import { CompletenessMeter } from "@/components/records/CompletenessMeter";
@@ -40,6 +41,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { ApiErrorState } from "@/components/DeadEnd";
 import { apiFetch } from "@/lib/api";
 import { craftIndex, loadCraftCatalogue } from "@/lib/craftCatalogue";
+import { fieldVoiceSubjectOf } from "@/lib/fieldVoices/withdrawals";
 import { formatDateTime } from "@/lib/format";
 import { isCompletenessKind, type CompletenessBlock } from "@/lib/completenessCore";
 import { canCreateRecords, canReview, isAdmin } from "@/lib/permissions";
@@ -87,6 +89,7 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
   const [mediaReview, setMediaReview] = useState<RecordMediaReview | null>(null);
   const reviewer = canReview(user);
   const noun = RECORD_VIEW_NOUN[type];
+  const fieldVoiceSubject = fieldVoiceSubjectOf(type);
 
   useEffect(() => {
     if (!reviewer || type === "craft") {
@@ -233,6 +236,7 @@ export function RecordView({ type, id }: { type: RecordViewType; id: string }) {
           <section className="panel p-4">
             <CollabPanel recordType={type} recordId={record.id} />
           </section>
+          {fieldVoiceSubject ? <FieldVoicesPanel subjectType={fieldVoiceSubject} subjectId={record.id} /> : null}
           <RecordDangerZone
             noun={noun}
             endpoint={`${RECORD_VIEW_ENDPOINT[type]}/${encodeURIComponent(id)}`}

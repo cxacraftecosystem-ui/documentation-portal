@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-ENUMS_VERSION = 2
+ENUMS_VERSION = 3
 LANGUAGES_VERSION = 1
 
 AnswerOrigin: tuple[str, ...] = ("TYPED", "TRANSCRIPT", "MACHINE_SUGGESTED", "MACHINE_SUGGESTED_EDITED", "PREFILL", "WORKBOOK")
@@ -11,7 +11,7 @@ AnswerPutStatus: tuple[str, ...] = ("SAVED", "UNCHANGED", "CONFLICT", "FORBIDDEN
 SectionStatus: tuple[str, ...] = ("COMPLETED", "NEEDS_REVIEW", "NEEDS_REDO")
 ConsentState: tuple[str, ...] = ("NOT_RECORDED", "GRANTED", "REFUSED")
 ConsentSubjectType: tuple[str, ...] = ("ARTISAN", "WORKSHOP", "USER", "RECORDING")
-ConsentPurpose: tuple[str, ...] = ("EXTERNAL_PROCESSING", "CROSS_PORTAL_SHARING", "USAGE_ANALYTICS")
+ConsentPurpose: tuple[str, ...] = ("EXTERNAL_PROCESSING", "CROSS_PORTAL_SHARING", "USAGE_ANALYTICS", "PUBLICATION")
 ConsentBasis: tuple[str, ...] = ("VERBAL_RECORDED", "VERBAL_WITNESSED", "SIGNED_FORM", "OWNER_ATTESTATION")
 ConsentVerdict: tuple[str, ...] = ("ALLOW", "AWAITING", "REFUSED")
 TranscriptStatus: tuple[str, ...] = ("QUEUED", "PROCESSING", "COMPLETED", "EMPTY", "FAILED", "RATE_LIMITED", "AWAITING_CONSENT", "REFUSED_CONSENT", "SKIPPED_DUPLICATE")

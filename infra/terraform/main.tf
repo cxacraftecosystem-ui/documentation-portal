@@ -293,6 +293,16 @@ resource "aws_iam_user_policy" "media" {
           "s3:GetObject"
         ]
         Resource = "${aws_s3_bucket.media.arn}/thumbnails/*"
+      },
+      {
+        Sid    = "FieldVoiceCopies"
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject",
+          "s3:DeleteObject"
+        ]
+        Resource = "${aws_s3_bucket.media.arn}/field-voices/*"
       }
     ]
   })

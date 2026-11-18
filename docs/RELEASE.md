@@ -94,6 +94,17 @@ A server-only fix that installed apps can use deploys without waiting for the fu
 
 Releases that change Android or the web keep the full Checks gate.
 
+## Field voices for KalaVigyan (0.0.8)
+
+Both portals serve KalaVigyan their transcripts and craft images over three signed peer routes ([FIELD_VOICES.md](FIELD_VOICES.md); contract `science-behind-craft/docs/contracts/field-voices.md`). The migration `20261218100000_field_voices` adds `PUBLICATION` to `ConsentPurpose` and the `FieldVoiceItem`, `FieldVoiceRefresh` and `FieldVoiceCopyRelease` tables; nothing is backfilled. It ships off.
+
+1. Deploy both portals together. Nothing leaves either portal yet.
+2. **Grant the API key the copy prefix, per portal**, before the switch: from its terraform directory, with an operator's own credentials, `terraform init`, then the portal's workspace (DR `terraform workspace select designrepo`, FR `default`; `terraform workspace show` confirms it). Then `terraform plan -target=aws_iam_user_policy.media -out field-voices.tfplan`. The plan must show exactly one in-place update of `aws_iam_user_policy.media` that adds the `FieldVoiceCopies` statement (`s3:PutObject`, `s3:GetObject` and `s3:DeleteObject` on `field-voices/*`). Apply it: `terraform apply field-voices.tfplan`. Without it every copy fails with AccessDenied and no image is listed.
+3. To turn it on, set the Actions **variables** in each repository: `CROSS_PORTAL_FIELD_VOICES_ENABLED` = `true`, and `FIELD_VOICES_RIGHTS_HOLDER` = the rights holder to name on every image (at most 200 characters; unset keeps the images route at 404). `CROSS_PORTAL_TOKEN` is already the value KalaVigyan holds. Redeploy; the "Pin the field voices settings" step writes both into the release's `.env`.
+4. On each box, through SSM, from the backend directory: `python -m app.scripts.refresh_field_voices --dry-run` prints the counts and writes nothing. Then `python -m app.scripts.refresh_field_voices` fills the ledger (at most 200 image copies a run; the worker makes the rest every 15 minutes). A second run changes only what changed.
+5. Check: `SELECT "stream", "state", count(*) FROM "FieldVoiceItem" GROUP BY 1, 2;` shows live rows for both streams, and `CrossPortalAccessLog` gains `FIELD_VOICES_STATE` rows once KalaVigyan reads.
+6. Turning it off: set `CROSS_PORTAL_FIELD_VOICES_ENABLED` = `false` and redeploy. The routes answer 404 and KalaVigyan hides the streams after 7 days without contact.
+
 ## Clearing earlier versions (0.0.1)
 
 When 0.0.1 is out, only 0.0.1 stays downloadable, and each box keeps only its live slot and the one slot a rollback flips to. Git tags are never deleted. Every script here prints its plan and deletes nothing unless it is given `--apply`, and a second run finds nothing left to do. Run them from the repository root, in git-bash, with an AWS profile that may use SSM and delete objects in the media bucket (`designrepo-operator` may), and `export GH_TOKEN=$(gh auth token --user ankits1802)` for the GitHub step. Each script refuses rather than guess.

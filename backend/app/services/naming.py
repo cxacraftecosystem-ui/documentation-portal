@@ -643,3 +643,16 @@ def content_disposition(filename: str, *, inline: bool = False) -> str:
     ascii_name = ascii_leaf(filename, fallback="download")
     kind = "inline" if inline else "attachment"
     return f"{kind}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(str(filename or ascii_name), safe='')}"
+
+
+FIELD_VOICE_PREFIX = "field-voices"
+FIELD_VOICE_EXTENSIONS = ("jpg", "png")
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+
+def field_voice_copy_key(sha256: str, ext: str) -> str:
+    if not _SHA256_HEX.fullmatch(str(sha256 or "")):
+        raise ValueError("a field voice copy is named by the lower-case SHA-256 of its own bytes")
+    if ext not in FIELD_VOICE_EXTENSIONS:
+        raise ValueError(f"a field voice copy is {' or '.join(FIELD_VOICE_EXTENSIONS)}, not {ext!r}")
+    return f"{FIELD_VOICE_PREFIX}/{sha256}.{ext}"

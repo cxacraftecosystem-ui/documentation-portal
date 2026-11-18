@@ -179,6 +179,7 @@ enum ConsentPurpose {
   EXTERNAL_PROCESSING
   CROSS_PORTAL_SHARING
   USAGE_ANALYTICS
+  PUBLICATION
 }
 
 enum ConsentBasis {
@@ -3684,4 +3685,36 @@ model DataBundle {
 
   @@unique([ownerId, digest])
   @@index([createdAt])
+}
+
+model FieldVoiceItem {
+  stream        String
+  itemId        String
+  state         String
+  revision      String?
+  reason        String?
+  successorId   String?
+  payload       Json?
+  copyKey       String?
+  copyOf        String?
+  subjects      Json?
+  updatedAt     DateTime @db.Timestamp(6)
+  firstListedAt DateTime @default(now())
+
+  @@id([stream, itemId])
+  @@index([stream, updatedAt, itemId])
+  @@index([stream, state, updatedAt, itemId])
+}
+
+model FieldVoiceRefresh {
+  id         Int       @id @default(1)
+  startedAt  DateTime?
+  finishedAt DateTime?
+  counts     Json      @default("{}")
+}
+
+model FieldVoiceCopyRelease {
+  copyKey  String   @id
+  queuedAt DateTime @default(now())
+  attempts Int      @default(0)
 }

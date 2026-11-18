@@ -4,3 +4,6 @@ tests/test_odia_script_backfill_db.py
 tests/test_transcription_parity.py
 tests/test_transcript_pipeline.py
 tests/test_transcript_db.py
+tests/test_field_voices_units.py
+tests/test_field_voices_parity.py
+tests/test_cross_portal_field_voices.py

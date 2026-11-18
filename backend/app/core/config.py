@@ -197,6 +197,12 @@ class Settings(BaseSettings):
     cross_portal_craft_feed_enabled: bool = Field(
         default=False, alias="CROSS_PORTAL_CRAFT_FEED_ENABLED"
     )
+    cross_portal_field_voices_enabled: bool = Field(
+        default=False, alias="CROSS_PORTAL_FIELD_VOICES_ENABLED"
+    )
+    field_voices_rights_holder: str | None = Field(
+        default=None, alias="FIELD_VOICES_RIGHTS_HOLDER"
+    )
     artisan_cards_enabled: bool = Field(default=True, alias="ARTISAN_CARDS_ENABLED")
     artisan_card_key: str | None = Field(default=None, alias="ARTISAN_CARD_KEY")
     artisan_card_key_version: int = Field(default=1, ge=1, le=9, alias="ARTISAN_CARD_KEY_VERSION")

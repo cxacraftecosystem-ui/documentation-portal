@@ -18,7 +18,7 @@ export type ConsentState = (typeof ConsentStateValues)[number];
 export const ConsentSubjectTypeValues = ["ARTISAN", "WORKSHOP", "USER", "RECORDING"] as const;
 export type ConsentSubjectType = (typeof ConsentSubjectTypeValues)[number];
 
-export const ConsentPurposeValues = ["EXTERNAL_PROCESSING", "CROSS_PORTAL_SHARING", "USAGE_ANALYTICS"] as const;
+export const ConsentPurposeValues = ["EXTERNAL_PROCESSING", "CROSS_PORTAL_SHARING", "USAGE_ANALYTICS", "PUBLICATION"] as const;
 export type ConsentPurpose = (typeof ConsentPurposeValues)[number];
 
 export const ConsentBasisValues = ["VERBAL_RECORDED", "VERBAL_WITNESSED", "SIGNED_FORM", "OWNER_ATTESTATION"] as const;

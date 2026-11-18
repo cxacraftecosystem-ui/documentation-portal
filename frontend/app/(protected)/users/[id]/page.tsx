@@ -7,6 +7,7 @@ import { Pencil, UserRound } from "lucide-react";
 import { adminChromeVisible, useAdminView } from "@/components/AdminViewProvider";
 import { useAuth } from "@/components/AuthProvider";
 import { useConfirm } from "@/components/dialogs/ConfirmDialog";
+import { FieldVoicesPanel } from "@/components/fieldVoices/FieldVoicesPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { Toggle } from "@/components/ui/Toggle";
@@ -186,6 +187,12 @@ function UserView() {
           ) : null}
         </section>
       )}
+
+      {person ? (
+        <div className="mt-5">
+          <FieldVoicesPanel subjectType="USER" subjectId={person.id} />
+        </div>
+      ) : null}
     </>
   );
 }

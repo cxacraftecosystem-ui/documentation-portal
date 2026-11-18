@@ -999,6 +999,42 @@ jobs:
           REMOTE
           } | ssh ubuntu@$EC2_HOST 'bash -s'
 
+      - name: Pin the field voices settings
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          CROSS_PORTAL_FIELD_VOICES_ENABLED: ${{ vars.CROSS_PORTAL_FIELD_VOICES_ENABLED }}
+          FIELD_VOICES_RIGHTS_HOLDER: ${{ vars.FIELD_VOICES_RIGHTS_HOLDER }}
+        run: |
+          flag="$(printf '%s' "$CROSS_PORTAL_FIELD_VOICES_ENABLED" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+          case "$flag" in
+            ""|true|false) ;;
+            *) echo "::error::CROSS_PORTAL_FIELD_VOICES_ENABLED must be true or false; nothing was deployed."; exit 1 ;;
+          esac
+          holder="$(printf '%s' "$FIELD_VOICES_RIGHTS_HOLDER" | tr -s '[:space:]' ' ' | sed -e 's/^ //' -e 's/ $//')"
+          if [ "${#holder}" -gt 200 ]; then echo "::error::FIELD_VOICES_RIGHTS_HOLDER is longer than 200 characters; nothing was deployed."; exit 1; fi
+          case "$holder" in
+            *'"'*|*'\'*|*'$'*|*'`'*) echo "::error::FIELD_VOICES_RIGHTS_HOLDER may not contain a quote, backslash, dollar or backtick; nothing was deployed."; exit 1 ;;
+          esac
+          {
+            printf 'FLAG=%q\n' "$flag"
+            printf 'HOLDER=%q\n' "$holder"
+            cat <<'REMOTE'
+          set -euo pipefail
+          ENVFILE=/home/ubuntu/app/next/.env
+          if [ -z "$FLAG" ] && [ -z "$HOLDER" ]; then echo "Field voices settings: kept from the box"; exit 0; fi
+          [ -s "$ENVFILE" ] && [ -n "$(tail -c1 "$ENVFILE")" ] && printf '\n' >> "$ENVFILE"
+          if [ -n "$FLAG" ]; then
+            sed -i '/^CROSS_PORTAL_FIELD_VOICES_ENABLED=/d' "$ENVFILE"
+            printf 'CROSS_PORTAL_FIELD_VOICES_ENABLED=%s\n' "$FLAG" >> "$ENVFILE"
+          fi
+          if [ -n "$HOLDER" ]; then
+            sed -i '/^FIELD_VOICES_RIGHTS_HOLDER=/d' "$ENVFILE"
+            printf 'FIELD_VOICES_RIGHTS_HOLDER="%s"\n' "$HOLDER" >> "$ENVFILE"
+          fi
+          echo "Field voices settings pinned: switch ${FLAG:-kept}, rights holder ${HOLDER:+set}"
+          REMOTE
+          } | ssh ubuntu@$EC2_HOST 'bash -s'
+
       - name: Migrate, start the new release beside the live one, switch when healthy
         run: |
           set -euo pipefail

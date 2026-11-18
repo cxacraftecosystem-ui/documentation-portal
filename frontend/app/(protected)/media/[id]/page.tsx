@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Images } from "lucide-react";
 
+import { FieldVoicesPanel } from "@/components/fieldVoices/FieldVoicesPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { RecordDangerZone } from "@/components/records/RecordDangerZone";
 import { RECORD_LIST_HREF } from "@/components/records/dangerZoneRules";
@@ -59,6 +60,7 @@ export default function MediaViewPage() {
               ))}
             </dl>
           </section>
+          <FieldVoicesPanel subjectType="RECORDING" subjectId={media.id} />
           <RecordDangerZone noun="file" endpoint={`/media/${encodeURIComponent(id)}`} afterHref={RECORD_LIST_HREF.media} />
         </div>
       )}

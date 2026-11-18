@@ -1,0 +1,29 @@
+{
+  "contract": "field-voices-web-strings",
+  "version": 1,
+  "strings": {
+    "heading": "KalaVigyan",
+    "shown": "Shown on KalaVigyan",
+    "withdrawn": "Withdrawn from KalaVigyan",
+    "withdrawnOn": "Withdrawn from KalaVigyan on {date}",
+    "loading": "Checking KalaVigyan…",
+    "loadFailed": "Couldn't check KalaVigyan.",
+    "tryAgain": "Try again",
+    "withdraw": "Withdraw",
+    "showAgain": "Show again",
+    "withdrawTitle": "Withdraw from KalaVigyan",
+    "showTitle": "Show on KalaVigyan again",
+    "takesEffect": "Takes effect at KalaVigyan's next sync.",
+    "basisLabel": "Recorded as",
+    "basisPlaceholder": "Choose",
+    "basisRecorded": "Said on a recording",
+    "basisWitnessed": "Said before a witness",
+    "basisSigned": "Signed form",
+    "noteLabel": "Note",
+    "cancel": "Cancel",
+    "saving": "Saving…",
+    "saveFailed": "Couldn't save. Try again.",
+    "withdrawnToast": "Withdrawn from KalaVigyan",
+    "shownToast": "Shown on KalaVigyan again"
+  }
+}

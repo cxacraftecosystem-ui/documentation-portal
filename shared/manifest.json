@@ -1,7 +1,7 @@
 {
   "generatedBy": "scripts/generate_shared.py",
   "sha256": {
-    "enums.json": "f22edc09b03226289c514b507d6810626f64ff99656e34d91cfab6cb72b224eb",
+    "enums.json": "5f52bb870c4267e8c2ce033c3a2a8c2e3df322f2641d28c1adaeb6d04cddd28e",
     "languages.json": "56a13533539e0d5a12185df650b0afeba7eb42c25cb4c4029277601b7be67dd6",
     "questionnaire-contract.json": "85164d3c6585044b253c5ceae9e22a0357ae1fe3f5c5dfdb9912d0c5a319d24a",
     "questionnaire-form-contract.json": "b8101ffec8f6686ea833ab1d39691f99b51edb1978efc61e5b491ae6b811312a",

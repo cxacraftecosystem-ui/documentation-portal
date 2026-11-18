@@ -38,6 +38,7 @@ Portal_Entity_Date[_Time]_Place_Craft_Subject_What[_Sequence][_n].ext
 
 - New keys use `media/<userId>/<uuid32hex>/<FileName>`. The uuid is what makes a key unique, and the ASCII leaf is the file name above. Keep the `media/<userId>/` prefix: authorisation checks it.
 - Backups use `backups/<repo-name>/YYYY-MM-DD.sql.gz` (unchanged).
+- One deliberate exception: the neutral image copies KalaVigyan reads are keyed `field-voices/<sha256>.<ext>`, with no user id, uuid, file name, place, craft or name. Build the key only with `naming.field_voice_copy_key` (golden rows `fieldVoiceKeys`); `docs/FIELD_VOICES.md` says why.
 - **Never rename existing keys and never rewrite `originalFilename`.** The readable name is applied when the file is downloaded: compute it from the row's data (`display_filename` on the backend, `mediaFileName` on the web) and send it via `Content-Disposition` (`filename=` ASCII plus `filename*=UTF-8''`) or the S3 `ResponseContentDisposition`. Keep parsing old capture codes (`D_SEC_`, `ddMMyyyyHHmm[ss]`) for section, question and time.
 
 ## Display titles

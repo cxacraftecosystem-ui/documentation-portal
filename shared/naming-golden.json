@@ -1333,5 +1333,22 @@
         "c_2"
       ]
     }
+  ],
+  "fieldVoiceKeys": [
+    {
+      "about": "The one deliberate exception to Portal_Entity_...: the neutral image copy served to KalaVigyan is keyed by the SHA-256 of its own bytes, with no user id, uuid, file name, place, craft or name (C:/dev/IIT/science-behind-craft/docs/contracts/field-voices.md, The neutral copy).",
+      "input": {"sha256": "ac43a1f3c2b8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6ad91", "ext": "jpg"},
+      "key": "field-voices/ac43a1f3c2b8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6ad91.jpg"
+    },
+    {
+      "input": {"sha256": "0000000000000000000000000000000000000000000000000000000000000000", "ext": "png"},
+      "key": "field-voices/0000000000000000000000000000000000000000000000000000000000000000.png"
+    }
+  ],
+  "fieldVoiceKeyRefusals": [
+    {"sha256": "AC43A1F3C2B8D9E0F1A2B3C4D5E6F708192A3B4C5D6E7F8091A2B3C4D5E6AD91", "ext": "jpg"},
+    {"sha256": "ac43", "ext": "jpg"},
+    {"sha256": "ac43a1f3c2b8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6ad91", "ext": "jpeg"},
+    {"sha256": "ac43a1f3c2b8d9e0f1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6ad91", "ext": "webp"}
   ]
 }

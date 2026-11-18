@@ -1,0 +1,189 @@
+{
+  "contract": "field-voices-scrub",
+  "version": 2,
+  "about": "Scrub and label vectors for the field voices feed (C:/dev/IIT/science-behind-craft/docs/contracts/field-voices.md, Scrubbing and Labels). Byte-identical in designer-portal and documentation-portal. Version 2 follows the owner's direction of 2026-11-18: only the legal floor is scrubbed (email addresses, phone-like and Aadhaar-like numbers, PAN-, voter ID- and IFSC-like codes, and the linked people's own numbers and email addresses); village and place names stay in the text, and a label is scrubbed like text and nulled only when nothing else is left. identityImage pins the legal floor's image pattern over captions and file names, both what it withholds and the ordinary craft words it must not. Every expected value was written by hand from the rules, not produced by the code.",
+  "scrub": [
+    {
+      "name": "an email address",
+      "text": "Write to ramesh.k@example.com today",
+      "held": {},
+      "expected": "Write to [email] today",
+      "counts": {"EMAIL": 1, "NUMBER": 0}
+    },
+    {
+      "name": "a spoken email address",
+      "text": "my mail is ramesh at gmail dot com ok",
+      "held": {},
+      "expected": "my mail is [email] ok",
+      "counts": {"EMAIL": 1, "NUMBER": 0}
+    },
+    {
+      "name": "a phone number with a gap",
+      "text": "Call me on 98290 12345.",
+      "held": {},
+      "expected": "Call me on [number].",
+      "counts": {"EMAIL": 0, "NUMBER": 1}
+    },
+    {
+      "name": "a phone number keeps the space after it",
+      "text": "Call 9829012345 now",
+      "held": {},
+      "expected": "Call [number] now",
+      "counts": {"EMAIL": 0, "NUMBER": 1}
+    },
+    {
+      "name": "an Aadhaar-like number",
+      "text": "Aadhaar 1234 5678 9012 given",
+      "held": {},
+      "expected": "Aadhaar [number] given",
+      "counts": {"EMAIL": 0, "NUMBER": 1}
+    },
+    {
+      "name": "an Aadhaar-like number with dots",
+      "text": "aadhaar 2345.6789.0123 ok",
+      "held": {},
+      "expected": "aadhaar [number] ok",
+      "counts": {"EMAIL": 0, "NUMBER": 1}
+    },
+    {
+      "name": "a PAN",
+      "text": "my PAN is ABCDE1234F, see",
+      "held": {},
+      "expected": "my PAN is [number], see",
+      "counts": {"EMAIL": 0, "NUMBER": 1}
+    },
+    {
+      "name": "a voter ID",
+      "text": "voter id abc1234567 here",
+      "held": {},
+      "expected": "voter id [number] here",
+      "counts": {"EMAIL": 0, "NUMBER": 1}
+    },
+    {
+      "name": "an IFSC code",
+      "text": "IFSC SBIN0001234 branch",
+      "held": {},
+      "expected": "IFSC [number] branch",
+      "counts": {"EMAIL": 0, "NUMBER": 1}
+    },
+    {
+      "name": "a nine-digit number is left to the held-back numbers",
+      "text": "account 123456789 at the bank",
+      "held": {},
+      "expected": "account 123456789 at the bank",
+      "counts": {"EMAIL": 0, "NUMBER": 0}
+    },
+    {
+      "name": "a held-back Pehchan card number",
+      "text": "card RJ4512 here",
+      "held": {"numbers": ["RJ4512"]},
+      "expected": "card [number] here",
+      "counts": {"EMAIL": 0, "NUMBER": 1}
+    },
+    {
+      "name": "a held-back phone number shorter than the pattern",
+      "text": "ring 98765 4321 please",
+      "held": {"numbers": ["987654321"]},
+      "expected": "ring [number] please",
+      "counts": {"EMAIL": 0, "NUMBER": 1}
+    },
+    {
+      "name": "a village name stays in the text",
+      "text": "I live at Gali Seven near Bagru.",
+      "held": {},
+      "expected": "I live at Gali Seven near Bagru.",
+      "counts": {"EMAIL": 0, "NUMBER": 0}
+    },
+    {
+      "name": "a place in another script stays in the text",
+      "text": "मैं बगरू में रहता हूँ",
+      "held": {},
+      "expected": "मैं बगरू में रहता हूँ",
+      "counts": {"EMAIL": 0, "NUMBER": 0}
+    },
+    {
+      "name": "a PIN code is not a phone or Aadhaar number",
+      "text": "PIN 302012 ok",
+      "held": {},
+      "expected": "PIN 302012 ok",
+      "counts": {"EMAIL": 0, "NUMBER": 0}
+    },
+    {
+      "name": "nothing to scrub",
+      "text": "We grind the alum with tamarind seed.",
+      "held": {},
+      "expected": "We grind the alum with tamarind seed.",
+      "counts": {"EMAIL": 0, "NUMBER": 0}
+    }
+  ],
+  "screen": [
+    {
+      "name": "a generated title naming a village is kept",
+      "label": "Workshop_2026-06-18_Bagru-Jaipur_Hand-Block-Printing_DW-RJ-0012",
+      "held": {},
+      "expected": "Workshop_2026-06-18_Bagru-Jaipur_Hand-Block-Printing_DW-RJ-0012"
+    },
+    {
+      "name": "a plain product name",
+      "label": "Ajrakh stole",
+      "held": {},
+      "expected": "Ajrakh stole"
+    },
+    {
+      "name": "a name carrying a phone number keeps the name",
+      "label": "Ramesh Kumar 9829012345",
+      "held": {},
+      "expected": "Ramesh Kumar [number]"
+    },
+    {
+      "name": "a label with an email address",
+      "label": "photos from ramesh@example.com",
+      "held": {},
+      "expected": "photos from [email]"
+    },
+    {
+      "name": "a label with a held-back number",
+      "label": "Card RJ4512",
+      "held": {"numbers": ["RJ4512"]},
+      "expected": "Card [number]"
+    },
+    {
+      "name": "a label that is only a phone number is null",
+      "label": " 9829012345 ",
+      "held": {},
+      "expected": null
+    },
+    {
+      "name": "an empty label is null",
+      "label": "   ",
+      "held": {},
+      "expected": null
+    }
+  ],
+  "identityImage": [
+    {"name": "an Aadhaar card", "text": "Aadhar card front", "identity": true},
+    {"name": "a Pehchan card", "text": "Pehchan card", "identity": true},
+    {"name": "an identity card", "text": "Identity card — kept on this record by the designer's decision", "identity": true},
+    {"name": "an identity card file name", "text": "identity-card.jpg", "identity": true},
+    {"name": "an identity proof", "text": "Identity proof of the artisan", "identity": true},
+    {"name": "an ID card", "text": "ID card", "identity": true},
+    {"name": "an ID card file name", "text": "photo_id_card.jpg", "identity": true},
+    {"name": "a voter ID file name", "text": "IMG_voter_id.jpg", "identity": true},
+    {"name": "a PAN card", "text": "PAN card", "identity": true},
+    {"name": "a driving licence", "text": "Driving licence", "identity": true},
+    {"name": "a signature", "text": "Signature of the artisan", "identity": true},
+    {"name": "a consent form", "text": "Consent form", "identity": true},
+    {"name": "a passbook", "text": "Bank passbook first page", "identity": true},
+    {"name": "bank account details", "text": "Bank account details", "identity": true},
+    {"name": "a cheque", "text": "Cancelled cheque", "identity": true},
+    {"name": "a UPI code", "text": "UPI QR for payment", "identity": true},
+    {"name": "a thumb impression", "text": "Thumb impression on the register", "identity": true},
+    {"name": "a fingerprint", "text": "Fingerprint scan", "identity": true},
+    {"name": "a brand identity board", "text": "Brand identity board", "identity": false},
+    {"name": "craft identity", "text": "Preserving craft identity and authenticity", "identity": false},
+    {"name": "a valid card stock", "text": "Bandhani on a valid card stock", "identity": false},
+    {"name": "cardboard", "text": "Rapid cardboard stencil", "identity": false},
+    {"name": "a prototype", "text": "Indigo dabu table runner", "identity": false},
+    {"name": "a portrait", "text": "Portrait of Ismail at his workshop", "identity": false}
+  ]
+}

@@ -215,3 +215,23 @@ def craft_feed_active(settings: Any) -> bool:
     if not getattr(settings, "cross_portal_craft_feed_enabled", False):
         return False
     return _secret_ok(getattr(settings, "cross_portal_token", None))
+
+
+def field_voices_active(settings: Any) -> bool:
+    if not getattr(settings, "cross_portal_field_voices_enabled", False):
+        return False
+    return _secret_ok(getattr(settings, "cross_portal_token", None))
+
+
+FIELD_VOICES_RIGHTS_HOLDER_MAX_LENGTH = 200
+
+
+def field_voices_rights_holder(settings: Any) -> str | None:
+    value = " ".join(str(getattr(settings, "field_voices_rights_holder", None) or "").split())
+    if not value or len(value) > FIELD_VOICES_RIGHTS_HOLDER_MAX_LENGTH:
+        return None
+    return value
+
+
+def field_voices_images_active(settings: Any) -> bool:
+    return field_voices_active(settings) and field_voices_rights_holder(settings) is not None
