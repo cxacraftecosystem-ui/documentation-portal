@@ -48,11 +48,12 @@ RECORDING_SQL = (
     'ON TRUE WHERE r."mediaFileId" = ANY($1::text[])'
 )
 TARGET_SQL = (
-    'SELECT t."recordingId", t."targetKey", t."sectionId", '
-    'COALESCE(t."askedQuestionId", t."questionLineageId") AS "questionId", s."code" AS "sectionCode", '
-    's."title" AS "sectionTitle", q."prompt", q."displayCode", q."questionCode" '
-    'FROM "QuestionnaireRecordingTarget" t LEFT JOIN "QuestionnaireSection" s ON s."id" = t."sectionId" '
+    'SELECT t."recordingId", t."targetKey", COALESCE(t."sectionId", q."sectionId") AS "sectionId", '
+    'COALESCE(t."askedQuestionId", t."questionLineageId") AS "questionId", '
+    'COALESCE(s."code", q."sectionCode") AS "sectionCode", COALESCE(s."title", q."sectionTitle") AS "sectionTitle", '
+    'q."prompt", q."displayCode", q."questionCode" FROM "QuestionnaireRecordingTarget" t '
     'LEFT JOIN "QuestionnaireQuestion" q ON q."id" = COALESCE(t."askedQuestionId", t."questionLineageId") '
+    'LEFT JOIN "QuestionnaireSection" s ON s."id" = COALESCE(t."sectionId", q."sectionId") '
     'WHERE t."recordingId" = ANY($1::text[]) ORDER BY t."recordingId", t."targetKey"'
 )
 SUBJECT_SQL = (

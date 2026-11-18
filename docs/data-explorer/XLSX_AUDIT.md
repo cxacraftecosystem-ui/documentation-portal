@@ -488,28 +488,9 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `updatedAt`: Comments › Updated on
 - **Feedback**: excluded. Feedback about the app itself, kept on the Feedback page.
 - **FeedbackReport**: excluded. Bug reports about the app itself, kept on the Feedback page.
-- **FieldVoiceCopyRelease**
-  - `copyKey`: excluded. missing
-  - `queuedAt`: excluded. missing
-  - `attempts`: excluded. missing
-- **FieldVoiceItem**
-  - `stream`: excluded. missing
-  - `itemId`: excluded. missing
-  - `state`: excluded. missing
-  - `revision`: excluded. missing
-  - `reason`: excluded. missing
-  - `successorId`: excluded. missing
-  - `payload`: excluded. missing
-  - `copyKey`: excluded. missing
-  - `copyOf`: excluded. missing
-  - `subjects`: excluded. missing
-  - `updatedAt`: excluded. missing
-  - `firstListedAt`: excluded. missing
-- **FieldVoiceRefresh**
-  - `id`: excluded. missing
-  - `startedAt`: excluded. missing
-  - `finishedAt`: excluded. missing
-  - `counts`: excluded. missing
+- **FieldVoiceCopyRelease**: excluded. The ledger of what this portal sends KalaVigyan (field voices), not collected data; the records it is built from are exported.
+- **FieldVoiceItem**: excluded. The ledger of what this portal sends KalaVigyan (field voices), not collected data; the records it is built from are exported.
+- **FieldVoiceRefresh**: excluded. The ledger of what this portal sends KalaVigyan (field voices), not collected data; the records it is built from are exported.
 - **GeoAlias**: excluded. Spelling aliases for state and district names (reference data).
 - **IdempotencyKey**: excluded. Request de-duplication cache.
 - **Location**
@@ -1568,28 +1549,9 @@ The report is built by `backend/app/services/datareport/` (byte-identical in bot
   - `createdAt`: Comments › Created on
   - `updatedAt`: Comments › Updated on
 - **Feedback**: excluded. Feedback about the app itself, kept on the Feedback page.
-- **FieldVoiceCopyRelease**
-  - `copyKey`: excluded. missing
-  - `queuedAt`: excluded. missing
-  - `attempts`: excluded. missing
-- **FieldVoiceItem**
-  - `stream`: excluded. missing
-  - `itemId`: excluded. missing
-  - `state`: excluded. missing
-  - `revision`: excluded. missing
-  - `reason`: excluded. missing
-  - `successorId`: excluded. missing
-  - `payload`: excluded. missing
-  - `copyKey`: excluded. missing
-  - `copyOf`: excluded. missing
-  - `subjects`: excluded. missing
-  - `updatedAt`: excluded. missing
-  - `firstListedAt`: excluded. missing
-- **FieldVoiceRefresh**
-  - `id`: excluded. missing
-  - `startedAt`: excluded. missing
-  - `finishedAt`: excluded. missing
-  - `counts`: excluded. missing
+- **FieldVoiceCopyRelease**: excluded. The ledger of what this portal sends KalaVigyan (field voices), not collected data; the records it is built from are exported.
+- **FieldVoiceItem**: excluded. The ledger of what this portal sends KalaVigyan (field voices), not collected data; the records it is built from are exported.
+- **FieldVoiceRefresh**: excluded. The ledger of what this portal sends KalaVigyan (field voices), not collected data; the records it is built from are exported.
 - **GeoAlias**: excluded. Spelling aliases for state and district names (reference data).
 - **IdempotencyKey**: excluded. Request de-duplication cache.
 - **Location**

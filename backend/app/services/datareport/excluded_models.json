@@ -63,5 +63,8 @@
  "UserAiCredential": "Secret or credential material: never leaves the server.",
  "UserPreference": "Per-account display and e-mail preferences.",
  "WeeklyDigest": "Weekly digest e-mails to accounts.",
- "WorkshopTypeOption": "Programme administration settings (Ministry pages)."
+ "WorkshopTypeOption": "Programme administration settings (Ministry pages).",
+ "FieldVoiceCopyRelease": "The ledger of what this portal sends KalaVigyan (field voices), not collected data; the records it is built from are exported.",
+ "FieldVoiceItem": "The ledger of what this portal sends KalaVigyan (field voices), not collected data; the records it is built from are exported.",
+ "FieldVoiceRefresh": "The ledger of what this portal sends KalaVigyan (field voices), not collected data; the records it is built from are exported."
 }
