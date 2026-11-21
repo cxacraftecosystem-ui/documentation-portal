@@ -111,7 +111,7 @@ const INSTITUTIONS = [
   { ...DC_HANDICRAFTS, markClass: "h-9 w-auto sm:h-12" }
 ];
 
-const CENTRE_OF_EXCELLENCE_HREF = "https://cxa-cms.vercel.app/";
+const CENTRE_OF_EXCELLENCE_HREF = "https://aicraft.iitkgp.ac.in/";
 
 const CENTRE_OF_EXCELLENCE_NAME =
   "Centre of Excellence for unified AI-enabled craft ecosystem platform";

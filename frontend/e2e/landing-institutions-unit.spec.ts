@@ -70,7 +70,7 @@ test("no file in public/logos duplicates the star path that FieldRepoLogo alread
 test("the three institutional destinations are the ones on record, each written exactly once", () => {
   const code = codeOnly(LANDING);
 
-  const destinations = ["https://www.iitkgp.ac.in/", "https://handicrafts.nic.in/", "https://cxa-cms.vercel.app/"];
+  const destinations = ["https://www.iitkgp.ac.in/", "https://handicrafts.nic.in/", "https://aicraft.iitkgp.ac.in/"];
   for (const href of destinations) {
     expect(code.split(href).length - 1, href + " should appear exactly once").toBe(1);
   }
